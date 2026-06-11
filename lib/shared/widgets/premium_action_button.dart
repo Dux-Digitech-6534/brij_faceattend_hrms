@@ -46,7 +46,7 @@ class _PremiumActionButtonState extends State<PremiumActionButton> {
           duration: const Duration(milliseconds: 180),
           height: widget.height,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(8),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -10,11 +11,13 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../app/app_scope.dart';
 import '../../core/config/app_config.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_formats.dart';
 import '../../core/utils/erp_error.dart';
 import '../../data/models/employee.dart';
 import '../../data/models/face_profile.dart';
-import '../../data/services/face_embedding_service.dart';
 import '../../data/services/face_profile_service.dart';
+import '../../services/face_detection_service.dart';
+import '../../services/kby_face_recognition_service.dart';
 import '../../shared/widgets/premium_action_button.dart';
 import '../../shared/widgets/premium_card.dart';
 import '../../shared/widgets/status_pill.dart';
@@ -38,8 +41,11 @@ class FaceAttendanceScreen extends StatefulWidget {
 class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
     with SingleTickerProviderStateMixin {
   late final FaceDetector _faceDetector;
+  final FaceDetectionService _faceDetectionService =
+      const FaceDetectionService();
+  final KbyFaceRecognitionService _kbyFaceRecognitionService =
+      KbyFaceRecognitionService();
   late final AnimationController _scanController;
-  late FaceEmbeddingService _embeddingService;
   late FaceProfileService _faceProfileService;
   CameraController? _cameraController;
   CameraDescription? _camera;
@@ -50,16 +56,24 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
   bool _faceDetected = false;
   bool _faceVerified = false;
   bool _verificationFailed = false;
+  bool _livenessPassed = false;
   bool _submitting = false;
+  bool _timedOut = false;
   String? _error;
   String? _profileError;
+  String? _failureReason;
+  String _livenessMessage = 'Waiting for liveness prompt.';
   double? _lastScore;
+  DateTime _scanStartedAt = DateTime.now();
+  DateTime _istNow = DateFormats.istNow();
   DateTime _lastFrameAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastVerificationAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastFailureSnackAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _clockTimer;
 
   bool get _isMarkIn => widget.logType.toUpperCase() == 'IN';
   bool get _hasProfile => _faceProfile != null && _faceProfile!.hasEmbedding;
+  bool get _hasShift => widget.employee.hasAssignedShift;
 
   @override
   void initState() {
@@ -78,6 +92,9 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1800),
     )..repeat(reverse: true);
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _istNow = DateFormats.istNow());
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadFaceProfile());
     _initializeCamera();
   }
@@ -86,12 +103,12 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     final scope = AppScope.of(context);
-    _embeddingService = scope.faceEmbeddingService;
     _faceProfileService = scope.faceProfileService;
   }
 
   @override
   void dispose() {
+    _clockTimer?.cancel();
     if (_cameraController?.value.isStreamingImages ?? false) {
       _cameraController?.stopImageStream();
     }
@@ -119,22 +136,47 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
       if (!mounted) return;
       setState(() {
         _faceProfile = profile;
-        _profileError = profile == null || !profile.hasEmbedding
-            ? 'Face not registered. Please register your face first.'
-            : null;
+        if (profile == null || !profile.hasEmbedding) {
+          _profileError =
+              'Face not registered. Please register your face first.';
+        } else if (!profile.hasKbyTemplates) {
+          _profileError =
+              'Registered face template missing. Please register your face again.';
+        } else {
+          _profileError = null;
+        }
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() => _profileError = '$error');
+      setState(() => _profileError = friendlyErrorMessage(error));
     } finally {
       if (mounted) setState(() => _loadingFaceProfile = false);
     }
   }
 
   Future<void> _initializeCamera() async {
+    final oldController = _cameraController;
+    if (oldController != null) {
+      if (oldController.value.isStreamingImages) {
+        await oldController.stopImageStream();
+      }
+      await oldController.dispose();
+      _cameraController = null;
+    }
+
     setState(() {
       _initializing = true;
       _error = null;
+      _timedOut = false;
+      _faceDetected = false;
+      _faceVerified = false;
+      _verificationFailed = false;
+      _submitting = false;
+      _livenessPassed = false;
+      _livenessMessage = 'Face quality check ready.';
+      _failureReason = null;
+      _lastScore = null;
+      _scanStartedAt = DateTime.now();
     });
 
     try {
@@ -173,15 +215,22 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
       if (!mounted) return;
       setState(() {
         _initializing = false;
-        _error = '$error';
+        _error = friendlyErrorMessage(
+          error,
+          fallback: 'Camera unavailable. Please try again.',
+        );
       });
     }
   }
 
   Future<void> _processCameraImage(CameraImage image) async {
-    if (_processingFrame || _submitting) return;
+    if (_processingFrame || _submitting || _faceVerified || _timedOut) return;
     final now = DateTime.now();
-    if (now.difference(_lastFrameAt) < const Duration(milliseconds: 450)) {
+    if (now.difference(_scanStartedAt) > AppConfig.faceAttendanceTimeout) {
+      await _timeoutScan();
+      return;
+    }
+    if (now.difference(_lastFrameAt) < AppConfig.faceFrameInterval) {
       return;
     }
     _lastFrameAt = now;
@@ -191,43 +240,138 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
       final inputImage = _inputImageFromCameraImage(image);
       if (inputImage == null) return;
       final faces = await _faceDetector.processImage(inputImage);
-      final detected = faces.isNotEmpty;
+      final validation = _faceDetectionService.validateCameraFaces(
+        image: image,
+        faces: faces,
+      );
+      final detected = validation.isValid;
       if (mounted && detected != _faceDetected) {
         setState(() => _faceDetected = detected);
       }
-      if (!_hasProfile || _faceVerified || faces.isEmpty) return;
+      debugPrint(
+        'FaceAttendance detectedFaceCount=${validation.detectedFaceCount} '
+        'faceBoundingBox=${validation.faceBoundingBox} '
+        'faceQualityScore=${validation.faceQualityScore.toStringAsFixed(3)} '
+        'failureReason=${validation.failureReason ?? ''}',
+      );
+      if (!_hasProfile || _faceVerified) return;
+      if (!validation.isValid || validation.face == null) {
+        if (mounted) {
+          setState(() {
+            _failureReason = validation.failureReason;
+            _verificationFailed = true;
+          });
+        }
+        return;
+      }
+
+      if (!_livenessPassed) {
+        if (mounted) {
+          setState(() {
+            _livenessPassed = true;
+            _livenessMessage = 'Face quality accepted.';
+            _failureReason = null;
+          });
+        }
+      }
+
       if (now.difference(_lastVerificationAt) <
-          const Duration(milliseconds: 900)) {
+          const Duration(milliseconds: 300)) {
         return;
       }
       _lastVerificationAt = now;
 
-      final liveEmbedding = await _embeddingService.createEmbedding(
+      final liveTemplate = await _kbyFaceRecognitionService.extractTemplate(
         image: image,
-        face: faces.first,
+        camera: _camera,
       );
-      final result = _faceProfileService.verifyFaceProfile(
-        profile: _faceProfile!,
-        liveEmbedding: liveEmbedding,
-      );
+      if (!liveTemplate.success || !liveTemplate.hasTemplate) {
+        if (!mounted) return;
+        setState(() {
+          _lastScore = null;
+          _verificationFailed = true;
+          _failureReason = liveTemplate.failureReason;
+        });
+        _showVerificationFailedSnack();
+        return;
+      }
+
+      final profile = _faceProfile;
+      if (profile == null || !profile.hasKbyTemplates) {
+        if (!mounted) return;
+        setState(() {
+          _lastScore = null;
+          _verificationFailed = true;
+          _failureReason =
+              'Registered face template missing. Please register again.';
+        });
+        _showVerificationFailedSnack();
+        return;
+      }
+
+      final result = await _kbyFaceRecognitionService
+          .compareWithRegisteredTemplates(
+            liveTemplateBase64: liveTemplate.templateBase64!,
+            registeredTemplatesBase64: profile.kbyTemplatesBase64,
+          );
       debugPrint(
-        'Face verification score: cosine=${result.cosineSimilarity.toStringAsFixed(4)}, '
-        'distance=${result.euclideanDistance.toStringAsFixed(4)}, '
-        'threshold=${AppConfig.faceCosineThreshold.toStringAsFixed(2)}',
+        'FaceAttendance kbySimilarity=${result.similarity.toStringAsFixed(4)} '
+        'kbyThreshold=${result.threshold.toStringAsFixed(2)} '
+        'kbyLiveness=${liveTemplate.liveness.toStringAsFixed(3)} '
+        'matchedEmployee=${widget.employee.name} '
+        'failureReason=${result.matched ? '' : result.failureReason ?? 'Face not matched'}',
       );
       if (!mounted) return;
+      if (result.matched) {
+        await _acceptMatch(result.similarity);
+        return;
+      }
+
       setState(() {
-        _lastScore = result.cosineSimilarity;
-        _faceVerified = result.matched;
-        _verificationFailed = !result.matched;
+        _lastScore = result.similarity;
+        _verificationFailed = true;
+        _failureReason =
+            'Face not matched. Score ${result.similarity.toStringAsFixed(2)}.';
       });
-      if (!result.matched) _showVerificationFailedSnack();
+      _showVerificationFailedSnack();
     } catch (_) {
       if (mounted && _faceDetected) {
         setState(() => _faceDetected = false);
       }
     } finally {
       _processingFrame = false;
+    }
+  }
+
+  Future<void> _acceptMatch(double score) async {
+    if (_faceVerified || _submitting) return;
+    setState(() {
+      _lastScore = score;
+      _faceVerified = true;
+      _verificationFailed = false;
+      _failureReason = null;
+    });
+    await _stopImageStream();
+    await _submit();
+  }
+
+  Future<void> _timeoutScan() async {
+    if (_timedOut) return;
+    await _stopImageStream();
+    if (!mounted) return;
+    setState(() {
+      _timedOut = true;
+      _verificationFailed = true;
+      _failureReason = 'Please face the camera clearly.';
+      _error = 'Please face the camera clearly.';
+    });
+  }
+
+  Future<void> _stopImageStream() async {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (controller.value.isStreamingImages) {
+      await controller.stopImageStream();
     }
   }
 
@@ -282,6 +426,16 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
 
   Future<void> _submit() async {
     if (!_faceVerified || _submitting) return;
+    if (!_hasShift) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Shift not assigned. Please contact HR.'),
+          backgroundColor: AppColors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _submitting = true);
 
     try {
@@ -296,10 +450,11 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
         accuracy: position.accuracy,
         faceVerified: true,
       );
+      await _stopImageStream();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${widget.logType.toUpperCase()} marked successfully.'),
+        const SnackBar(
+          content: Text('Attendance marked successfully'),
           backgroundColor: AppColors.green,
         ),
       );
@@ -307,8 +462,15 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
       if (!mounted) return;
+      setState(() {
+        _failureReason = friendlyErrorMessage(error);
+        _verificationFailed = true;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error'), backgroundColor: AppColors.red),
+        SnackBar(
+          content: Text(friendlyErrorMessage(error)),
+          backgroundColor: AppColors.red,
+        ),
       );
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -367,13 +529,25 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
                                 fontWeight: FontWeight.w700,
                               ),
                         ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'IST ${DateFormats.istClock.format(_istNow)}',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w900,
+                              ),
+                        ),
                       ],
                     ),
                   ),
                   StatusPill(
-                    label: widget.logType.toUpperCase(),
-                    foreground: actionColor,
-                    background: actionColor.withValues(alpha: 0.1),
+                    label: _hasShift
+                        ? widget.logType.toUpperCase()
+                        : 'No shift',
+                    foreground: _hasShift ? actionColor : AppColors.amber,
+                    background: (_hasShift ? actionColor : AppColors.amber)
+                        .withValues(alpha: 0.1),
                   ),
                 ],
               ),
@@ -385,24 +559,33 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
               initializing: _initializing,
               faceDetected: _faceDetected || _faceVerified,
               error: _error,
+              livenessPrompt: _livenessMessage,
+              livenessPassed: _livenessPassed,
               onRetry: _initializeCamera,
             ),
             const SizedBox(height: 18),
             PremiumCard(
               child: Row(
                 children: [
-                  Icon(
-                    _faceVerified
-                        ? Icons.verified_user_rounded
-                        : _verificationFailed
-                        ? Icons.gpp_bad_rounded
-                        : Icons.face_retouching_off_rounded,
-                    color: _faceVerified
-                        ? AppColors.green
-                        : _verificationFailed
-                        ? AppColors.red
-                        : AppColors.amber,
-                  ),
+                  if (_submitting)
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2.4),
+                    )
+                  else
+                    Icon(
+                      _faceVerified
+                          ? Icons.verified_user_rounded
+                          : _verificationFailed
+                          ? Icons.gpp_bad_rounded
+                          : Icons.face_retouching_off_rounded,
+                      color: _faceVerified
+                          ? AppColors.green
+                          : _verificationFailed
+                          ? AppColors.red
+                          : AppColors.amber,
+                    ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -436,7 +619,9 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
                   ? const [Color(0xFF00D090), AppColors.green]
                   : const [Color(0xFFFF6680), AppColors.red],
               isLoading: _submitting,
-              onPressed: _faceVerified ? _submit : null,
+              onPressed: _faceVerified && _hasShift && !_submitting
+                  ? _submit
+                  : null,
             ),
           ],
         ),
@@ -445,30 +630,39 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
   }
 
   String get _statusTitle {
+    if (!_hasShift) return 'Shift not assigned';
     if (_loadingFaceProfile) return 'Loading face profile';
     if (_profileError != null) return 'Face not registered';
+    if (_submitting) return 'Face matched';
     if (_faceVerified) return 'Face verified';
+    if (_timedOut) return 'Try again';
+    if (!_livenessPassed && _faceDetected) return 'Checking face quality';
     if (_verificationFailed) return 'Face verification failed';
     if (_faceDetected) return 'Matching face profile';
     return 'Scanning face';
   }
 
   String get _statusSubtitle {
+    if (!_hasShift) return 'Shift not assigned. Please contact HR.';
     if (_loadingFaceProfile) {
       return 'Fetching registered template from ERPNext.';
     }
     if (_profileError != null) return _profileError!;
+    if (_submitting) return 'Face matched. Marking attendance...';
     if (_faceVerified) {
       final score = _lastScore == null
           ? ''
           : ' Score ${_lastScore!.toStringAsFixed(2)}.';
       return 'GPS will be captured before ERPNext submission.$score';
     }
+    if (_timedOut) return 'Please face the camera clearly.';
+    if (!_livenessPassed && _faceDetected) return _livenessMessage;
     if (_verificationFailed) {
+      if (_failureReason != null) return _failureReason!;
       final score = _lastScore == null
           ? ''
           : ' Score ${_lastScore!.toStringAsFixed(2)}.';
-      return 'Face verification failed. Please try again.$score';
+      return 'Face not matched yet. Required ${AppConfig.kbyFaceMatchThreshold.toStringAsFixed(2)}.$score';
     }
     if (_faceDetected) {
       return 'Keep your face centered while the live template is checked.';
@@ -484,6 +678,8 @@ class _CameraPanel extends StatelessWidget {
     required this.initializing,
     required this.faceDetected,
     required this.error,
+    required this.livenessPrompt,
+    required this.livenessPassed,
     required this.onRetry,
   });
 
@@ -492,6 +688,8 @@ class _CameraPanel extends StatelessWidget {
   final bool initializing;
   final bool faceDetected;
   final String? error;
+  final String livenessPrompt;
+  final bool livenessPassed;
   final VoidCallback onRetry;
 
   @override
@@ -500,7 +698,7 @@ class _CameraPanel extends StatelessWidget {
     return AspectRatio(
       aspectRatio: 0.78,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(8),
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -510,6 +708,45 @@ class _CameraPanel extends StatelessWidget {
             _ScanOverlay(
               controller: scanController,
               faceDetected: faceDetected,
+            ),
+            Positioned(
+              left: 14,
+              right: 14,
+              bottom: 14,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      livenessPassed
+                          ? Icons.verified_rounded
+                          : Icons.visibility_rounded,
+                      color: livenessPassed
+                          ? AppColors.green
+                          : AppColors.primary,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        livenessPassed
+                            ? 'Face quality accepted'
+                            : livenessPrompt,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.text,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
             if (error != null)
               Container(

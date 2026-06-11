@@ -1,7 +1,54 @@
 import frappe
+from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+
+def create_employee_face_fields():
+    custom_fields = {
+        "Employee": [
+            {
+                "fieldname": "face_registered",
+                "label": "Face Registered",
+                "fieldtype": "Check",
+                "insert_after": "image",
+            },
+            {
+                "fieldname": "face_embeddings",
+                "label": "Face Embeddings",
+                "fieldtype": "Long Text",
+                "insert_after": "face_registered",
+            },
+            {
+                "fieldname": "face_updated_on",
+                "label": "Face Updated On",
+                "fieldtype": "Datetime",
+                "insert_after": "face_embeddings",
+            },
+            {
+                "fieldname": "face_model_version",
+                "label": "Face Model Version",
+                "fieldtype": "Data",
+                "insert_after": "face_updated_on",
+            },
+            {
+                "fieldname": "face_quality_score",
+                "label": "Face Quality Score",
+                "fieldtype": "Float",
+                "insert_after": "face_model_version",
+            },
+            {
+                "fieldname": "face_embedding_count",
+                "label": "Face Embedding Count",
+                "fieldtype": "Int",
+                "insert_after": "face_quality_score",
+            },
+        ]
+    }
+    create_custom_fields(custom_fields, update=True)
 
 
 def execute():
+    create_employee_face_fields()
+
     doctype = "Employee Face Profile"
     fields = [
         {"fieldname": "employee", "label": "Employee", "fieldtype": "Link", "options": "Employee", "reqd": 1},

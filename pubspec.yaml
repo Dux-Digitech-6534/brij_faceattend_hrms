@@ -42,6 +42,10 @@ dependencies:
   permission_handler: ^12.0.1
   intl: ^0.20.2
   google_fonts: ^8.1.0
+  tflite_flutter: 0.11.0
+  image: 4.5.4
+  facesdk_plugin:
+    path: third_party/facesdk_plugin
 
 dev_dependencies:
   flutter_test:
@@ -68,6 +72,7 @@ flutter:
 
   assets:
     - assets/icons/
+    - assets/models/
 
 flutter_launcher_icons:
   android: true

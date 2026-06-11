@@ -20,46 +20,63 @@ class AppBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return NavigationBar(
-      selectedIndex: current.index,
-      height: 72,
-      elevation: 0,
-      backgroundColor: AppColors.surface,
-      indicatorColor: AppColors.primarySoft,
-      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-      onDestinationSelected: (index) {
-        final tab = AppTab.values[index];
-        if (tab == current) return;
-        Widget page;
-        switch (tab) {
-          case AppTab.home:
-            page = HomeScreen(initialData: dashboardData);
-          case AppTab.history:
-            page = AttendanceHistoryScreen(initialData: dashboardData);
-          case AppTab.profile:
-            page = ProfileSyncScreen(initialData: dashboardData);
-        }
-        Navigator.of(
-          context,
-        ).pushReplacement(MaterialPageRoute<void>(builder: (_) => page));
-      },
-      destinations: const [
-        NavigationDestination(
-          selectedIcon: Icon(Icons.home_rounded),
-          icon: Icon(Icons.home_outlined),
-          label: 'Home',
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: 62,
+        child: NavigationBarTheme(
+          data: NavigationBarThemeData(
+            labelTextStyle: WidgetStateProperty.all(
+              Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            iconTheme: WidgetStateProperty.all(const IconThemeData(size: 23)),
+          ),
+          child: NavigationBar(
+            selectedIndex: current.index,
+            height: 58,
+            elevation: 0,
+            backgroundColor: AppColors.surface,
+            indicatorColor: AppColors.primarySoft,
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            onDestinationSelected: (index) {
+              final tab = AppTab.values[index];
+              if (tab == current) return;
+              Widget page;
+              switch (tab) {
+                case AppTab.home:
+                  page = HomeScreen(initialData: dashboardData);
+                case AppTab.history:
+                  page = AttendanceHistoryScreen(initialData: dashboardData);
+                case AppTab.profile:
+                  page = ProfileSyncScreen(initialData: dashboardData);
+              }
+              Navigator.of(
+                context,
+              ).pushReplacement(MaterialPageRoute<void>(builder: (_) => page));
+            },
+            destinations: const [
+              NavigationDestination(
+                selectedIcon: Icon(Icons.home_rounded),
+                icon: Icon(Icons.home_outlined),
+                label: 'Home',
+              ),
+              NavigationDestination(
+                selectedIcon: Icon(Icons.history_rounded),
+                icon: Icon(Icons.history_outlined),
+                label: 'History',
+              ),
+              NavigationDestination(
+                selectedIcon: Icon(Icons.person_rounded),
+                icon: Icon(Icons.person_outline_rounded),
+                label: 'Profile',
+              ),
+            ],
+          ),
         ),
-        NavigationDestination(
-          selectedIcon: Icon(Icons.history_rounded),
-          icon: Icon(Icons.history_outlined),
-          label: 'History',
-        ),
-        NavigationDestination(
-          selectedIcon: Icon(Icons.person_rounded),
-          icon: Icon(Icons.person_outline_rounded),
-          label: 'Profile',
-        ),
-      ],
+      ),
     );
   }
 }

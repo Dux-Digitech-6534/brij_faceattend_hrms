@@ -57,7 +57,7 @@ class EmployeeCheckin {
     return value == '1' || value == 'true';
   }
 
-  String get timeLabel => DateFormats.shortTime.format(time.toLocal());
-  String get dateLabel => DateFormats.historyDate.format(time.toLocal());
+  String get timeLabel => DateFormats.shortTime.format(time);
+  String get dateLabel => DateFormats.historyDate.format(time);
   bool get isIn => logType.toUpperCase() == 'IN';
 }

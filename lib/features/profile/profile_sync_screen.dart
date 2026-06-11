@@ -4,14 +4,17 @@ import '../../app/app_scope.dart';
 import '../../core/config/app_config.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_formats.dart';
+import '../../core/utils/erp_error.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/face_profile.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
 import '../../shared/widgets/premium_action_button.dart';
 import '../../shared/widgets/premium_card.dart';
+import '../../shared/widgets/powered_by_footer.dart';
 import '../../shared/widgets/status_pill.dart';
 import '../auth/login_screen.dart';
 import '../face_registration/register_face_screen.dart';
+import '../home/home_screen.dart';
 
 class ProfileSyncScreen extends StatefulWidget {
   const ProfileSyncScreen({required this.initialData, super.key});
@@ -33,7 +36,9 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadFaceProfile());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _sync(showSnack: false),
+    );
   }
 
   Future<void> _loadFaceProfile() async {
@@ -48,26 +53,43 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
       setState(() => _faceProfile = profile);
     } catch (error) {
       if (!mounted) return;
-      setState(() => _faceProfileError = '$error');
+      setState(() => _faceProfileError = friendlyErrorMessage(error));
     } finally {
       if (mounted) setState(() => _loadingFaceProfile = false);
     }
   }
 
-  Future<void> _sync() async {
+  Future<void> _sync({bool showSnack = true}) async {
     setState(() => _syncing = true);
     try {
       final data = await AppScope.of(context).repository.loadDashboard();
       if (!mounted) return;
       setState(() => _data = data);
       await _loadFaceProfile();
-      _showSnack('ERPNext profile and shift data synced.');
+      if (showSnack) _showSnack('ERPNext profile and shift data synced.');
     } catch (error) {
       if (!mounted) return;
-      _showSnack('$error', isError: true);
+      await _handleSyncError(error);
     } finally {
       if (mounted) setState(() => _syncing = false);
     }
+  }
+
+  Future<void> _handleSyncError(Object error) async {
+    if (!isInactiveEmployeeError(error)) {
+      _showSnack(friendlyErrorMessage(error), isError: true);
+      return;
+    }
+
+    await AppScope.of(context).repository.logout();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            const LoginScreen(initialMessage: inactiveEmployeeMessage),
+      ),
+      (_) => false,
+    );
   }
 
   Future<void> _openRegisterFace() async {
@@ -108,161 +130,206 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
   @override
   Widget build(BuildContext context) {
     final employee = _data.employee;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Profile & Sync')),
-      bottomNavigationBar: AppBottomNav(
-        current: AppTab.profile,
-        dashboardData: _data,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 8, 18, 22),
-        children: [
-          PremiumCard(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                Container(
-                  width: 78,
-                  height: 78,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [AppColors.primary, AppColors.secondary],
+    return PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => HomeScreen(initialData: _data),
+          ),
+        );
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Profile & Sync'),
+          actions: [
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: _syncing ? null : () => _sync(),
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+          ],
+        ),
+        bottomNavigationBar: AppBottomNav(
+          current: AppTab.profile,
+          dashboardData: _data,
+        ),
+        body: RefreshIndicator(
+          color: AppColors.primary,
+          onRefresh: _sync,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(18, 8, 18, 86),
+            children: [
+              PremiumCard(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 78,
+                      height: 78,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [AppColors.primary, AppColors.secondary],
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        employee.initials,
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
                     ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    employee.initials,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
+                    const SizedBox(height: 14),
+                    Text(
+                      employee.employeeName,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 6),
+                    Text(
+                      employee.designation ?? employee.department ?? _data.user,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.faint,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    StatusPill(
+                      label: employee.hasAssignedShift
+                          ? 'Shift assigned'
+                          : 'Shift not assigned',
+                      foreground: employee.hasAssignedShift
+                          ? AppColors.green
+                          : AppColors.amber,
+                      background:
+                          (employee.hasAssignedShift
+                                  ? AppColors.green
+                                  : AppColors.amber)
+                              .withValues(alpha: 0.1),
+                      icon: employee.hasAssignedShift
+                          ? Icons.check_circle_rounded
+                          : Icons.warning_amber_rounded,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 14),
-                Text(
-                  employee.employeeName,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 16),
+              PremiumCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Employee Details',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _InfoLine(label: 'Employee ID', value: employee.name),
+                    _InfoLine(
+                      label: 'ERP User',
+                      value: employee.userId ?? _data.user,
+                    ),
+                    _InfoLine(
+                      label: 'Company email',
+                      value: employee.companyEmail ?? 'Not available',
+                    ),
+                    _InfoLine(
+                      label: 'Personal email',
+                      value: employee.personalEmail ?? 'Not available',
+                    ),
+                    _InfoLine(
+                      label: 'Designation',
+                      value: employee.designation ?? 'Not available',
+                    ),
+                    _InfoLine(
+                      label: 'Department',
+                      value: employee.department ?? 'Not available',
+                    ),
+                    _InfoLine(
+                      label: 'Company',
+                      value: employee.company ?? 'Not available',
+                    ),
+                    _InfoLine(
+                      label: 'Branch',
+                      value: employee.branch ?? 'Not available',
+                    ),
+                    _InfoLine(
+                      label: 'Default shift',
+                      value: employee.resolvedShift ?? 'Not assigned',
+                    ),
+                    _InfoLine(
+                      label: 'Holiday list',
+                      value: employee.holidayList ?? 'Not assigned',
+                    ),
+                    _InfoLine(
+                      label: 'Status',
+                      value: employee.status ?? 'Active',
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  employee.designation ?? employee.department ?? _data.user,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.faint,
-                    fontWeight: FontWeight.w700,
-                  ),
+              ),
+              const SizedBox(height: 16),
+              _FaceProfileCard(
+                profile: _faceProfile,
+                loading: _loadingFaceProfile,
+                error: _faceProfileError,
+                onRegister: _openRegisterFace,
+              ),
+              const SizedBox(height: 16),
+              PremiumCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sync Settings',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _InfoLine(label: 'Server', value: AppConfig.baseUrl),
+                    _InfoLine(
+                      label: 'Attendance API',
+                      value: AppConfig.useCustomAttendanceEndpoint
+                          ? AppConfig.customAttendanceEndpoint
+                          : '/api/resource/Employee Checkin',
+                    ),
+                    const SizedBox(height: 16),
+                    PremiumActionButton(
+                      label: 'Refresh from ERPNext',
+                      icon: Icons.cloud_sync_rounded,
+                      colors: const [AppColors.primary, AppColors.secondary],
+                      isLoading: _syncing,
+                      onPressed: _sync,
+                    ),
+                    const SizedBox(height: 12),
+                    PremiumActionButton(
+                      label: 'Logout',
+                      icon: Icons.logout_rounded,
+                      colors: const [Color(0xFFFF6680), AppColors.red],
+                      isLoading: _loggingOut,
+                      onPressed: _logout,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 14),
-                StatusPill(
-                  label: _data.shiftDetails.fetchedFromErp
-                      ? 'Shift synced'
-                      : 'Shift pending',
-                  foreground: _data.shiftDetails.fetchedFromErp
-                      ? AppColors.green
-                      : AppColors.amber,
-                  background:
-                      (_data.shiftDetails.fetchedFromErp
-                              ? AppColors.green
-                              : AppColors.amber)
-                          .withValues(alpha: 0.1),
-                  icon: Icons.sync_rounded,
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 16),
+              const PoweredByFooter(),
+            ],
           ),
-          const SizedBox(height: 16),
-          PremiumCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Employee Details',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _InfoLine(label: 'Employee ID', value: employee.name),
-                _InfoLine(label: 'ERP User', value: _data.user),
-                _InfoLine(
-                  label: 'Designation',
-                  value: employee.designation ?? 'Not available',
-                ),
-                _InfoLine(
-                  label: 'Department',
-                  value: employee.department ?? 'Not available',
-                ),
-                _InfoLine(
-                  label: 'Company',
-                  value: employee.company ?? 'Not available',
-                ),
-                _InfoLine(
-                  label: 'Branch',
-                  value: employee.branch ?? 'Not available',
-                ),
-                _InfoLine(
-                  label: 'Default shift',
-                  value: employee.defaultShift ?? 'Not assigned',
-                ),
-                _InfoLine(
-                  label: 'Holiday list',
-                  value: employee.holidayList ?? 'Not assigned',
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          _FaceProfileCard(
-            profile: _faceProfile,
-            loading: _loadingFaceProfile,
-            error: _faceProfileError,
-            onRegister: _openRegisterFace,
-          ),
-          const SizedBox(height: 16),
-          PremiumCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Sync Settings',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _InfoLine(label: 'Server', value: AppConfig.baseUrl),
-                _InfoLine(
-                  label: 'Attendance API',
-                  value: AppConfig.useCustomAttendanceEndpoint
-                      ? AppConfig.customAttendanceEndpoint
-                      : '/api/resource/Employee Checkin',
-                ),
-                const SizedBox(height: 16),
-                PremiumActionButton(
-                  label: 'Sync Now',
-                  icon: Icons.cloud_sync_rounded,
-                  colors: const [AppColors.primary, AppColors.secondary],
-                  isLoading: _syncing,
-                  onPressed: _sync,
-                ),
-                const SizedBox(height: 12),
-                PremiumActionButton(
-                  label: 'Logout',
-                  icon: Icons.logout_rounded,
-                  colors: const [Color(0xFFFF6680), AppColors.red],
-                  isLoading: _loggingOut,
-                  onPressed: _logout,
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

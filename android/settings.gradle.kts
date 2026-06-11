@@ -24,3 +24,5 @@ plugins {
 }
 
 include(":app")
+include(":libfacesdk")
+include(":libfotoapparat")

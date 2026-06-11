@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../../app/app_scope.dart';
 import '../../core/config/app_config.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/erp_error.dart';
 import '../../shared/widgets/app_logo.dart';
 import '../../shared/widgets/premium_action_button.dart';
 import '../../shared/widgets/premium_card.dart';
+import '../../shared/widgets/powered_by_footer.dart';
 import '../home/home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -54,12 +56,13 @@ class _LoginScreenState extends State<LoginScreen> {
         _passwordController.text,
       );
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
+      Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute<void>(builder: (_) => HomeScreen(initialData: data)),
+        (_) => false,
       );
     } catch (error) {
       if (!mounted) return;
-      _showSnack('$error', isError: true);
+      _showSnack(friendlyErrorMessage(error), isError: true);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -173,7 +176,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       const Spacer(),
-                      const SizedBox(height: 26),
+                      const SizedBox(height: 20),
                       Text(
                         'ERPNext HRMS attendance with face verification and GPS.',
                         textAlign: TextAlign.center,
@@ -182,6 +185,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      const SizedBox(height: 8),
+                      const PoweredByFooter(),
                     ],
                   ),
                 ),

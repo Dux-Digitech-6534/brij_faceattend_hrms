@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/config/app_config.dart';
 import '../../core/theme/app_theme.dart';
 
 class AppLogo extends StatelessWidget {
@@ -14,15 +15,11 @@ class AppLogo extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: size,
+          width: size * 2.7,
           height: size,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(size * 0.28),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [AppColors.primary, AppColors.secondary],
-            ),
+            borderRadius: BorderRadius.circular(18),
+            color: Colors.white,
             boxShadow: [
               BoxShadow(
                 color: AppColors.primary.withValues(alpha: 0.28),
@@ -31,16 +28,23 @@ class AppLogo extends StatelessWidget {
               ),
             ],
           ),
-          child: Icon(
-            Icons.face_retouching_natural_rounded,
-            color: Colors.white,
-            size: size * 0.48,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Image.asset(
+              'assets/icons/dux_logo.jpg',
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) => Icon(
+                Icons.face_retouching_natural_rounded,
+                color: AppColors.primary,
+                size: size * 0.48,
+              ),
+            ),
           ),
         ),
         if (showText) ...[
           const SizedBox(height: 18),
           Text(
-            'FaceAttend HRMS',
+            AppConfig.appName,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w900,
@@ -49,7 +53,7 @@ class AppLogo extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Smart. Secure. Seamless.',
+            AppConfig.tagline,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: AppColors.faint,
               fontWeight: FontWeight.w600,

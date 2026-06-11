@@ -23,7 +23,7 @@ class PremiumCard extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
         boxShadow: [
           BoxShadow(
@@ -40,7 +40,7 @@ class PremiumCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         child: card,
       ),

@@ -6,6 +6,7 @@ import '../data/services/face_embedding_service.dart';
 import '../data/services/face_profile_service.dart';
 import '../data/services/location_service.dart';
 import '../data/services/session_store.dart';
+import '../services/employee_face_storage_service.dart';
 
 class AppScope extends InheritedWidget {
   const AppScope({
@@ -15,6 +16,7 @@ class AppScope extends InheritedWidget {
     required this.locationService,
     required this.faceEmbeddingService,
     required this.faceProfileService,
+    required this.employeeFaceStorageService,
     required super.child,
     super.key,
   });
@@ -25,6 +27,7 @@ class AppScope extends InheritedWidget {
   final LocationService locationService;
   final FaceEmbeddingService faceEmbeddingService;
   final FaceProfileService faceProfileService;
+  final EmployeeFaceStorageService employeeFaceStorageService;
 
   static AppScope of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
@@ -39,6 +42,7 @@ class AppScope extends InheritedWidget {
         repository != oldWidget.repository ||
         locationService != oldWidget.locationService ||
         faceEmbeddingService != oldWidget.faceEmbeddingService ||
-        faceProfileService != oldWidget.faceProfileService;
+        faceProfileService != oldWidget.faceProfileService ||
+        employeeFaceStorageService != oldWidget.employeeFaceStorageService;
   }
 }

@@ -13,6 +13,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/erp_error.dart';
 import '../../data/models/employee.dart';
 import '../../data/services/face_embedding_service.dart';
+import '../../services/face_detection_service.dart';
+import '../../services/kby_face_recognition_service.dart';
 import '../../shared/widgets/premium_action_button.dart';
 import '../../shared/widgets/premium_card.dart';
 import '../../shared/widgets/status_pill.dart';
@@ -33,21 +35,28 @@ class RegisterFaceScreen extends StatefulWidget {
 
 class _RegisterFaceScreenState extends State<RegisterFaceScreen>
     with SingleTickerProviderStateMixin {
-  static const _sampleTarget = 5;
+  static const _sampleTarget = AppConfig.faceRegistrationSampleCount;
 
   late final FaceDetector _faceDetector;
+  final FaceDetectionService _faceDetectionService =
+      const FaceDetectionService();
+  final KbyFaceRecognitionService _kbyFaceRecognitionService =
+      KbyFaceRecognitionService();
   late final AnimationController _scanController;
   late FaceEmbeddingService _embeddingService;
 
   CameraController? _cameraController;
   CameraDescription? _camera;
   final List<List<double>> _samples = [];
+  final List<String> _kbyTemplates = [];
+  final List<double> _sampleQualities = [];
   bool _initializing = true;
   bool _processingFrame = false;
   bool _started = false;
   bool _faceDetected = false;
   bool _saving = false;
   String? _error;
+  double _qualityTotal = 0;
   DateTime _lastFrameAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastSampleAt = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -89,6 +98,15 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
   }
 
   Future<void> _initializeCamera() async {
+    final oldController = _cameraController;
+    if (oldController != null) {
+      if (oldController.value.isStreamingImages) {
+        await oldController.stopImageStream();
+      }
+      await oldController.dispose();
+      _cameraController = null;
+    }
+
     setState(() {
       _initializing = true;
       _error = null;
@@ -130,7 +148,10 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
       if (!mounted) return;
       setState(() {
         _initializing = false;
-        _error = '$error';
+        _error = friendlyErrorMessage(
+          error,
+          fallback: 'Camera unavailable. Please try again.',
+        );
       });
     }
   }
@@ -138,19 +159,31 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
   void _startRegistration() {
     setState(() {
       _samples.clear();
+      _kbyTemplates.clear();
+      _sampleQualities.clear();
+      _qualityTotal = 0;
       _started = true;
       _error = null;
       _lastSampleAt = DateTime.fromMillisecondsSinceEpoch(0);
     });
   }
 
-  void _recapture() {
+  Future<void> _recapture() async {
     setState(() {
       _samples.clear();
+      _kbyTemplates.clear();
+      _sampleQualities.clear();
+      _qualityTotal = 0;
       _started = false;
       _faceDetected = false;
       _error = null;
     });
+    final controller = _cameraController;
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        !controller.value.isStreamingImages) {
+      await _initializeCamera();
+    }
   }
 
   Future<void> _processCameraImage(CameraImage image) async {
@@ -166,27 +199,57 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
       final inputImage = _inputImageFromCameraImage(image);
       if (inputImage == null) return;
       final faces = await _faceDetector.processImage(inputImage);
-      final detected = faces.isNotEmpty;
+      final validation = _faceDetectionService.validateCameraFaces(
+        image: image,
+        faces: faces,
+      );
+      final detected = validation.isValid;
       if (mounted && detected != _faceDetected) {
         setState(() => _faceDetected = detected);
       }
 
-      if (!_started || _completed || faces.isEmpty) return;
+      debugPrint(
+        'FaceRegister detectedFaceCount=${validation.detectedFaceCount} '
+        'faceBoundingBox=${validation.faceBoundingBox} '
+        'faceQualityScore=${validation.faceQualityScore.toStringAsFixed(3)} '
+        'failureReason=${validation.failureReason ?? ''}',
+      );
+
+      if (!_started || _completed) return;
+      if (!validation.isValid || validation.face == null) {
+        if (mounted) setState(() => _error = validation.failureReason);
+        return;
+      }
       if (now.difference(_lastSampleAt) < const Duration(milliseconds: 850)) {
+        return;
+      }
+
+      final kbyTemplate = await _kbyFaceRecognitionService.extractTemplate(
+        image: image,
+        camera: _camera,
+      );
+      if (!kbyTemplate.success || !kbyTemplate.hasTemplate) {
+        if (mounted) setState(() => _error = kbyTemplate.failureReason);
         return;
       }
 
       final embedding = await _embeddingService.createEmbedding(
         image: image,
-        face: faces.first,
+        face: validation.face!,
+        faceQualityScore: validation.faceQualityScore,
       );
       if (!mounted || embedding.isEmpty) return;
 
       setState(() {
         _samples.add(embedding);
+        _kbyTemplates.add(kbyTemplate.templateBase64!);
+        _sampleQualities.add(validation.faceQualityScore);
+        _qualityTotal += validation.faceQualityScore;
+        _error = null;
         _lastSampleAt = now;
         if (_completed) _started = false;
       });
+      if (_completed) await _stopImageStream();
     } catch (_) {
       if (mounted && _faceDetected) {
         setState(() => _faceDetected = false);
@@ -231,22 +294,49 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
     return builder.toBytes();
   }
 
+  Future<void> _stopImageStream() async {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (controller.value.isStreamingImages) {
+      await controller.stopImageStream();
+    }
+  }
+
   Future<void> _saveFaceProfile() async {
     if (!_completed || _saving) return;
     setState(() => _saving = true);
 
     try {
       final embedding = _embeddingService.averageEmbeddings(_samples);
+      if (embedding.isEmpty) {
+        throw const ErpError('Embedding not generated. Please capture again.');
+      }
+      if (_kbyTemplates.length < _sampleTarget) {
+        throw const ErpError(
+          'Face template not generated. Please capture again.',
+        );
+      }
+      final bestIndex = _bestSampleIndex();
+      final samples = List<List<double>>.from(_samples);
+      if (bestIndex > 0) {
+        final best = samples.removeAt(bestIndex);
+        samples.insert(0, best);
+      }
       await AppScope.of(context).faceProfileService.saveFaceProfile(
         employee: widget.employee,
         embedding: embedding,
+        embeddings: samples,
+        kbyTemplatesBase64: List<String>.from(_kbyTemplates),
+        qualityScore: _samples.isEmpty ? 0 : _qualityTotal / _samples.length,
         sampleCount: _samples.length,
         deviceId: AppConfig.appDeviceId,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Face registered successfully'),
+          content: Text(
+            'Face registered successfully. You can now mark attendance.',
+          ),
           backgroundColor: AppColors.green,
         ),
       );
@@ -255,10 +345,37 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error'), backgroundColor: AppColors.red),
+        SnackBar(
+          content: Text(friendlyErrorMessage(error)),
+          backgroundColor: AppColors.red,
+        ),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  int _bestSampleIndex() {
+    if (_sampleQualities.isEmpty) return 0;
+    var bestIndex = 0;
+    var bestQuality = _sampleQualities.first;
+    for (var index = 1; index < _sampleQualities.length; index++) {
+      if (_sampleQualities[index] > bestQuality) {
+        bestQuality = _sampleQualities[index];
+        bestIndex = index;
+      }
+    }
+    return bestIndex;
+  }
+
+  String _promptForSample(int sampleNumber) {
+    switch ((sampleNumber - 1) % 3) {
+      case 1:
+        return 'Move slightly left';
+      case 2:
+        return 'Move slightly right';
+      default:
+        return 'Look straight';
     }
   }
 
@@ -283,6 +400,7 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
               sampleCount: _samples.length,
               currentSample: currentSample,
               sampleTarget: _sampleTarget,
+              prompt: _promptForSample(currentSample),
               error: _error,
               onRetry: _initializeCamera,
             ),
@@ -309,7 +427,7 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: (_samples.isNotEmpty || _started) && !_saving
-                  ? _recapture
+                  ? () => _recapture()
                   : null,
               icon: const Icon(Icons.refresh_rounded),
               label: const Text('Re-capture'),
@@ -343,7 +461,7 @@ class _EmployeeDetailCard extends StatelessWidget {
       ('Designation', employee.designation ?? 'Not available'),
       ('Department', employee.department ?? 'Not available'),
       ('Company', employee.company ?? 'Not available'),
-      ('Shift', employee.defaultShift ?? 'Not assigned'),
+      ('Shift', employee.resolvedShift ?? 'Not assigned'),
       if (employee.branch != null && employee.branch!.trim().isNotEmpty)
         ('Branch', employee.branch!),
       ('User', employee.userId ?? user),
@@ -462,6 +580,7 @@ class _CameraScanCard extends StatelessWidget {
     required this.sampleCount,
     required this.currentSample,
     required this.sampleTarget,
+    required this.prompt,
     required this.error,
     required this.onRetry,
   });
@@ -475,6 +594,7 @@ class _CameraScanCard extends StatelessWidget {
   final int sampleCount;
   final int currentSample;
   final int sampleTarget;
+  final String prompt;
   final String? error;
   final VoidCallback onRetry;
 
@@ -511,7 +631,7 @@ class _CameraScanCard extends StatelessWidget {
                     right: 16,
                     bottom: 16,
                     child: _InstructionPill(
-                      title: 'Look straight into camera',
+                      title: completed ? 'Samples captured' : prompt,
                       subtitle: status,
                       faceDetected: faceDetected,
                       completed: completed,

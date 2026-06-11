@@ -6,7 +6,7 @@ void main() {
   testWidgets('FaceAttend logo renders app name and tagline', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: Scaffold(body: AppLogo())));
 
-    expect(find.text('FaceAttend HRMS'), findsOneWidget);
-    expect(find.text('Smart. Secure. Seamless.'), findsOneWidget);
+    expect(find.text('DUX FaceAttend HRMS'), findsOneWidget);
+    expect(find.text('ERPNext HRMS face attendance'), findsOneWidget);
   });
 }

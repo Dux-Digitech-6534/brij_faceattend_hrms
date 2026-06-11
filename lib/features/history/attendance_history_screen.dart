@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/erp_error.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/employee_checkin.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
 import '../../shared/widgets/premium_card.dart';
 import '../../shared/widgets/status_pill.dart';
+import '../home/home_screen.dart';
 
 class AttendanceHistoryScreen extends StatefulWidget {
   const AttendanceHistoryScreen({required this.initialData, super.key});
@@ -29,80 +31,94 @@ class _AttendanceHistoryScreenState extends State<AttendanceHistoryScreen> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error'), backgroundColor: AppColors.red),
+        SnackBar(
+          content: Text(friendlyErrorMessage(error)),
+          backgroundColor: AppColors.red,
+        ),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Attendance History'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh_rounded),
+    return PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => HomeScreen(initialData: _data),
           ),
-        ],
-      ),
-      bottomNavigationBar: AppBottomNav(
-        current: AppTab.history,
-        dashboardData: _data,
-      ),
-      body: RefreshIndicator(
-        color: AppColors.primary,
-        onRefresh: _refresh,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 8, 18, 22),
-          children: [
-            PremiumCard(
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.calendar_month_rounded,
-                    color: AppColors.primary,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _data.employee.employeeName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${_data.history.length} synced checkins',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: AppColors.faint,
-                                fontWeight: FontWeight.w700,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  StatusPill(
-                    label: 'ERPNext',
-                    foreground: AppColors.green,
-                    background: AppColors.green.withValues(alpha: 0.1),
-                    icon: Icons.cloud_done_rounded,
-                  ),
-                ],
-              ),
+        );
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Attendance History'),
+          actions: [
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: _refresh,
+              icon: const Icon(Icons.refresh_rounded),
             ),
-            const SizedBox(height: 16),
-            if (_data.history.isEmpty)
-              const _EmptyHistory()
-            else
-              ..._data.history.map((item) => _HistoryItem(item: item)),
           ],
+        ),
+        bottomNavigationBar: AppBottomNav(
+          current: AppTab.history,
+          dashboardData: _data,
+        ),
+        body: RefreshIndicator(
+          color: AppColors.primary,
+          onRefresh: _refresh,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(18, 8, 18, 86),
+            children: [
+              PremiumCard(
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.calendar_month_rounded,
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _data.employee.employeeName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${_data.history.length} synced checkins',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: AppColors.faint,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    StatusPill(
+                      label: 'ERPNext',
+                      foreground: AppColors.green,
+                      background: AppColors.green.withValues(alpha: 0.1),
+                      icon: Icons.cloud_done_rounded,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (_data.history.isEmpty)
+                const _EmptyHistory()
+              else
+                ..._data.history.map((item) => _HistoryItem(item: item)),
+            ],
+          ),
         ),
       ),
     );
