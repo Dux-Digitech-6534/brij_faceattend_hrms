@@ -51,6 +51,10 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
   final List<String> _kbyTemplates = [];
   final List<double> _sampleQualities = [];
   bool _initializing = true;
+  bool _engineInitStarted = false;
+  bool _recognitionEngineInitializing = true;
+  bool _recognitionEngineReady = false;
+  bool _useKbyRecognition = false;
   bool _processingFrame = false;
   bool _started = false;
   bool _faceDetected = false;
@@ -61,6 +65,11 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
   DateTime _lastSampleAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   bool get _completed => _samples.length >= _sampleTarget;
+  String get _selectedEngine => _useKbyRecognition
+      ? 'KBY FaceSDK'
+      : _recognitionEngineReady
+      ? 'Flutter/TFLite fallback'
+      : 'unavailable';
 
   @override
   void initState() {
@@ -69,6 +78,7 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
       options: FaceDetectorOptions(
         performanceMode: FaceDetectorMode.fast,
         enableClassification: true,
+        enableLandmarks: true,
         enableTracking: true,
         minFaceSize: 0.18,
       ),
@@ -84,6 +94,10 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _embeddingService = AppScope.of(context).faceEmbeddingService;
+    if (!_engineInitStarted) {
+      _engineInitStarted = true;
+      _initializeRecognitionEngine();
+    }
   }
 
   @override
@@ -156,7 +170,72 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
     }
   }
 
+  Future<void> _initializeRecognitionEngine() async {
+    if (mounted) {
+      setState(() {
+        _recognitionEngineInitializing = true;
+        _recognitionEngineReady = false;
+      });
+    }
+
+    final kbyStatus = await _kbyFaceRecognitionService.initialize();
+    if (kbyStatus.available) {
+      if (!mounted) return;
+      setState(() {
+        _useKbyRecognition = true;
+        _recognitionEngineReady = true;
+        _recognitionEngineInitializing = false;
+      });
+      debugPrint(
+        'FaceRegister engine ready selectedEngine=$_selectedEngine '
+        'activationCode=${kbyStatus.activationCode ?? 'n/a'} '
+        'initCode=${kbyStatus.initCode ?? 'n/a'}',
+      );
+      return;
+    }
+
+    debugPrint(
+      'FaceRegister KBY unavailable; trying Flutter/TFLite fallback. '
+      'reason=${kbyStatus.failureReason}',
+    );
+    try {
+      await _embeddingService.initialize();
+      if (!mounted) return;
+      setState(() {
+        _useKbyRecognition = false;
+        _recognitionEngineReady = true;
+        _recognitionEngineInitializing = false;
+      });
+      debugPrint(
+        'FaceRegister engine ready selectedEngine=$_selectedEngine '
+        'kbyFailure=${kbyStatus.failureReason}',
+      );
+    } catch (error, stackTrace) {
+      debugPrint('FaceRegister fallback engine init failed error=$error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      setState(() {
+        _useKbyRecognition = false;
+        _recognitionEngineReady = false;
+        _recognitionEngineInitializing = false;
+        _error = 'Face recognition engine unavailable.';
+      });
+    }
+  }
+
   void _startRegistration() {
+    if (!_recognitionEngineReady) {
+      setState(() {
+        _error = _recognitionEngineInitializing
+            ? 'Face recognition engine is initializing. Please wait.'
+            : 'Face recognition engine unavailable.';
+      });
+      debugPrint(
+        'FaceRegister reject reason=engine_not_ready '
+        'selectedEngine=$_selectedEngine',
+      );
+      return;
+    }
     setState(() {
       _samples.clear();
       _kbyTemplates.clear();
@@ -166,6 +245,10 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
       _error = null;
       _lastSampleAt = DateTime.fromMillisecondsSinceEpoch(0);
     });
+    debugPrint(
+      'FaceRegister started selectedEngine=$_selectedEngine '
+      'sampleTarget=$_sampleTarget',
+    );
   }
 
   Future<void> _recapture() async {
@@ -202,6 +285,8 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
       final validation = _faceDetectionService.validateCameraFaces(
         image: image,
         faces: faces,
+        camera: _camera,
+        previewSize: _cameraController?.value.previewSize,
       );
       final detected = validation.isValid;
       if (mounted && detected != _faceDetected) {
@@ -212,10 +297,21 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
         'FaceRegister detectedFaceCount=${validation.detectedFaceCount} '
         'faceBoundingBox=${validation.faceBoundingBox} '
         'faceQualityScore=${validation.faceQualityScore.toStringAsFixed(3)} '
-        'failureReason=${validation.failureReason ?? ''}',
+        'failureReason=${validation.failureReason ?? ''} '
+        'debug=${validation.debugInfo}',
       );
 
       if (!_started || _completed) return;
+      if (!_recognitionEngineReady) {
+        if (mounted) {
+          setState(() => _error = 'Face recognition engine unavailable.');
+        }
+        debugPrint(
+          'FaceRegister sample reject reason=engine_not_ready '
+          'selectedEngine=$_selectedEngine',
+        );
+        return;
+      }
       if (!validation.isValid || validation.face == null) {
         if (mounted) setState(() => _error = validation.failureReason);
         return;
@@ -224,31 +320,51 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
         return;
       }
 
-      final kbyTemplate = await _kbyFaceRecognitionService.extractTemplate(
-        image: image,
-        camera: _camera,
-      );
-      if (!kbyTemplate.success || !kbyTemplate.hasTemplate) {
-        if (mounted) setState(() => _error = kbyTemplate.failureReason);
-        return;
+      String? kbyTemplateBase64;
+      if (_useKbyRecognition) {
+        final kbyTemplate = await _kbyFaceRecognitionService.extractTemplate(
+          image: image,
+          camera: _camera,
+        );
+        if (kbyTemplate.success && kbyTemplate.hasTemplate) {
+          kbyTemplateBase64 = kbyTemplate.templateBase64;
+        } else if (kbyTemplate.engineUnavailable) {
+          _useKbyRecognition = false;
+          debugPrint(
+            'FaceRegister switching to fallback reason=${kbyTemplate.failureReason}',
+          );
+        } else {
+          if (mounted) setState(() => _error = kbyTemplate.failureReason);
+          debugPrint(
+            'FaceRegister sample reject reason=${kbyTemplate.failureReason} '
+            'selectedEngine=KBY FaceSDK',
+          );
+          return;
+        }
       }
 
       final embedding = await _embeddingService.createEmbedding(
         image: image,
         face: validation.face!,
+        camera: _camera,
         faceQualityScore: validation.faceQualityScore,
       );
       if (!mounted || embedding.isEmpty) return;
 
       setState(() {
         _samples.add(embedding);
-        _kbyTemplates.add(kbyTemplate.templateBase64!);
+        if (kbyTemplateBase64 != null) _kbyTemplates.add(kbyTemplateBase64);
         _sampleQualities.add(validation.faceQualityScore);
         _qualityTotal += validation.faceQualityScore;
         _error = null;
         _lastSampleAt = now;
         if (_completed) _started = false;
       });
+      debugPrint(
+        'FaceRegister sampleAccepted count=${_samples.length}/$_sampleTarget '
+        'selectedEngine=$_selectedEngine kbyTemplate=${kbyTemplateBase64 != null} '
+        'quality=${validation.faceQualityScore.toStringAsFixed(3)}',
+      );
       if (_completed) await _stopImageStream();
     } catch (_) {
       if (mounted && _faceDetected) {
@@ -311,11 +427,6 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
       if (embedding.isEmpty) {
         throw const ErpError('Embedding not generated. Please capture again.');
       }
-      if (_kbyTemplates.length < _sampleTarget) {
-        throw const ErpError(
-          'Face template not generated. Please capture again.',
-        );
-      }
       final bestIndex = _bestSampleIndex();
       final samples = List<List<double>>.from(_samples);
       if (bestIndex > 0) {
@@ -330,6 +441,11 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
         qualityScore: _samples.isEmpty ? 0 : _qualityTotal / _samples.length,
         sampleCount: _samples.length,
         deviceId: AppConfig.appDeviceId,
+      );
+      debugPrint(
+        'FaceRegister save success selectedEngine=$_selectedEngine '
+        'sampleCount=${_samples.length} kbyTemplateCount=${_kbyTemplates.length} '
+        'avgQuality=${(_qualityTotal / _samples.length).toStringAsFixed(3)}',
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

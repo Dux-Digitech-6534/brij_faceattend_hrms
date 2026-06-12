@@ -110,26 +110,11 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      final faceProfile = await AppScope.of(
-        context,
-      ).faceProfileService.getFaceProfile(_data.employee.name);
-      if (!mounted) return;
-
-      if (faceProfile == null || !faceProfile.hasEmbedding) {
-        _showSnack(
-          'Face not registered. Please register your face first.',
-          isError: true,
-        );
-        await _openRegisterFace();
-        return;
-      }
-
       final changed = await Navigator.of(context).push<bool>(
         MaterialPageRoute<bool>(
           builder: (_) => FaceAttendanceScreen(
             employee: _data.employee,
             logType: requestedLogType,
-            initialFaceProfile: faceProfile,
           ),
         ),
       );

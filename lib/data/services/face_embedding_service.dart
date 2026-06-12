@@ -11,14 +11,20 @@ class FaceEmbeddingService {
 
   final FaceRecognitionService _recognitionService;
 
+  Future<void> initialize() {
+    return _recognitionService.initialize();
+  }
+
   Future<List<double>> createEmbedding({
     required CameraImage image,
     required Face face,
+    CameraDescription? camera,
     double faceQualityScore = 0,
   }) async {
     final result = await _recognitionService.createEmbedding(
       image: image,
       face: face,
+      camera: camera,
       faceQualityScore: faceQualityScore,
     );
     return result.embedding;
@@ -39,6 +45,42 @@ class FaceEmbeddingService {
       matched: similarity >= threshold,
       cosineSimilarity: similarity,
       euclideanDistance: distance,
+      threshold: threshold,
+    );
+  }
+
+  FaceMatchResult compareAgainstSamples({
+    required List<List<double>> storedEmbeddings,
+    required List<double> liveEmbedding,
+    double threshold = AppConfig.faceStrongMatchThreshold,
+  }) {
+    final candidates = storedEmbeddings
+        .where((embedding) => embedding.isNotEmpty)
+        .toList(growable: false);
+    if (liveEmbedding.isEmpty || candidates.isEmpty) {
+      return FaceMatchResult(
+        matched: false,
+        cosineSimilarity: 0,
+        euclideanDistance: double.infinity,
+        threshold: threshold,
+      );
+    }
+
+    var bestSimilarity = -1.0;
+    var bestDistance = double.infinity;
+    for (final stored in candidates) {
+      final similarity = cosineSimilarity(stored, liveEmbedding);
+      final distance = euclideanDistance(stored, liveEmbedding);
+      if (similarity > bestSimilarity) {
+        bestSimilarity = similarity;
+        bestDistance = distance;
+      }
+    }
+
+    return FaceMatchResult(
+      matched: bestSimilarity >= threshold,
+      cosineSimilarity: bestSimilarity,
+      euclideanDistance: bestDistance,
       threshold: threshold,
     );
   }

@@ -9,6 +9,9 @@ class EmployeeFaceData {
     required this.averageEmbedding,
     this.kbyTemplatesBase64 = const [],
     required this.modelVersion,
+    this.engineName = '',
+    this.embeddingDimension = 0,
+    this.thresholdVersion = '',
     required this.faceRegistered,
     required this.faceQualityScore,
     required this.updatedAt,
@@ -20,6 +23,9 @@ class EmployeeFaceData {
   final List<double> averageEmbedding;
   final List<String> kbyTemplatesBase64;
   final String modelVersion;
+  final String engineName;
+  final int embeddingDimension;
+  final String thresholdVersion;
   final bool faceRegistered;
   final double faceQualityScore;
   final DateTime updatedAt;
@@ -38,6 +44,9 @@ class EmployeeFaceData {
       'averageEmbedding': averageEmbedding,
       'kbyTemplatesBase64': kbyTemplatesBase64,
       'modelVersion': modelVersion,
+      'engineName': engineName,
+      'embeddingDimension': embeddingDimension,
+      'thresholdVersion': thresholdVersion,
       'faceRegistered': faceRegistered,
       'faceQualityScore': faceQualityScore,
       'updatedAt': updatedAt.toIso8601String(),
@@ -66,6 +75,12 @@ class EmployeeFaceData {
       ),
       modelVersion:
           _string(json['modelVersion'] ?? json['model_version']) ?? '',
+      engineName: _string(json['engineName'] ?? json['engine_name']) ?? '',
+      embeddingDimension: _int(
+        json['embeddingDimension'] ?? json['embedding_dimension'],
+      ),
+      thresholdVersion:
+          _string(json['thresholdVersion'] ?? json['threshold_version']) ?? '',
       faceRegistered: _bool(json['faceRegistered'] ?? json['face_registered']),
       faceQualityScore: _double(
         json['faceQualityScore'] ?? json['face_quality_score'],
@@ -89,6 +104,9 @@ class EmployeeFaceData {
     required List<double> averageEmbedding,
     required String modelVersion,
     required double qualityScore,
+    String engineName = '',
+    int embeddingDimension = 0,
+    String thresholdVersion = '',
   }) {
     return jsonEncode({
       'embeddings': embeddings
@@ -96,7 +114,11 @@ class EmployeeFaceData {
           .toList(growable: false),
       'average_embedding': averageEmbedding.map(_round).toList(growable: false),
       'model_version': modelVersion,
+      'engine_name': engineName,
+      'embedding_dimension': embeddingDimension,
+      'threshold_version': thresholdVersion,
       'quality_score': _round(qualityScore),
+      'created_at': DateTime.now().toIso8601String(),
     });
   }
 
@@ -127,6 +149,17 @@ class EmployeeFaceData {
       return _decodeEmbedding(decoded);
     } catch (_) {
       return const [];
+    }
+  }
+
+  static String? decodeModelVersionPayload(Object? source) {
+    if (source == null) return null;
+    try {
+      final decoded = source is String ? jsonDecode(source) : source;
+      if (decoded is! Map) return null;
+      return _string(decoded['model_version'] ?? decoded['modelVersion']);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -207,6 +240,12 @@ class EmployeeFaceData {
   static double _double(Object? value) {
     if (value is num) return value.toDouble();
     return double.tryParse('$value') ?? 0;
+  }
+
+  static int _int(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse('$value') ?? 0;
   }
 
   static double _round(double value) => double.parse(value.toStringAsFixed(6));

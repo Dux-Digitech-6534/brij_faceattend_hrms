@@ -49,6 +49,7 @@ class AttendanceRepository {
     required double longitude,
     required double accuracy,
     required bool faceVerified,
+    required String capturedImagePath,
     String appDeviceId = AppConfig.appDeviceId,
   }) async {
     final shift = employee.resolvedShift;
@@ -56,22 +57,16 @@ class AttendanceRepository {
       throw const ErpError('Shift not assigned. Please contact HR.');
     }
 
-    final todayStatus = await loadTodayStatus(employee);
     final normalizedLogType = logType.toUpperCase();
-    if (!todayStatus.canSubmit(normalizedLogType)) {
-      throw ErpError(todayStatus.duplicateMessage(normalizedLogType));
-    }
 
-    return _apiClient.createEmployeeCheckin(
-      employee: employee.name,
+    return _apiClient.verifyFaceAndMarkAttendance(
+      labourName: employee.name,
+      imagePath: capturedImagePath,
       shift: shift,
       logType: normalizedLogType,
       time: time,
       latitude: latitude,
       longitude: longitude,
-      accuracy: accuracy,
-      faceVerified: faceVerified,
-      appDeviceId: appDeviceId,
     );
   }
 

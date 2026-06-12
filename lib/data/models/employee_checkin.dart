@@ -13,6 +13,8 @@ class EmployeeCheckin {
     this.latitude,
     this.longitude,
     this.faceVerified,
+    this.faceDistance,
+    this.serverMessage,
   });
 
   final String name;
@@ -26,6 +28,8 @@ class EmployeeCheckin {
   final double? latitude;
   final double? longitude;
   final bool? faceVerified;
+  final double? faceDistance;
+  final String? serverMessage;
 
   factory EmployeeCheckin.fromJson(Map<String, dynamic> json) {
     return EmployeeCheckin(
@@ -40,6 +44,8 @@ class EmployeeCheckin {
       latitude: _toDouble(json['custom_latitude'] ?? json['latitude']),
       longitude: _toDouble(json['custom_longitude'] ?? json['longitude']),
       faceVerified: _toBool(json['custom_face_verified']),
+      faceDistance: _toDouble(json['distance']),
+      serverMessage: json['message'] as String?,
     );
   }
 

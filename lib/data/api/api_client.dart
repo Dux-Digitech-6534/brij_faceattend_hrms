@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -529,6 +530,91 @@ class ApiClient {
     }
   }
 
+  Future<EmployeeCheckin> verifyFaceAndMarkAttendance({
+    required String labourName,
+    required String imagePath,
+    required String logType,
+    required DateTime time,
+    required double latitude,
+    required double longitude,
+    required String shift,
+  }) async {
+    final cleanLabourName = labourName.trim();
+    if (cleanLabourName.isEmpty) {
+      throw const ErpError('Employee not found');
+    }
+
+    final imageBytes = await File(imagePath).readAsBytes();
+    if (imageBytes.isEmpty) {
+      throw const ErpError('Captured image is empty. Please try again.');
+    }
+
+    final capturedImage = 'data:image/jpeg;base64,${base64Encode(imageBytes)}';
+
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        AppConfig.faceAttendanceEndpoint,
+        data: {
+          'labour_name': cleanLabourName,
+          'captured_image': capturedImage,
+          'latitude': latitude.toString(),
+          'longitude': longitude.toString(),
+          'log_type': logType.toUpperCase(),
+        },
+        options: Options(
+          contentType: Headers.formUrlEncodedContentType,
+          sendTimeout: const Duration(seconds: 45),
+          receiveTimeout: const Duration(seconds: 45),
+        ),
+      );
+
+      final message = response.data?['message'];
+      if (message is! Map) {
+        throw const ErpError('Invalid server response.');
+      }
+
+      final result = Map<String, dynamic>.from(message);
+      final status = '${result['status'] ?? ''}'.trim().toLowerCase();
+      final serverMessage = '${result['message'] ?? ''}'.trim();
+      final distance = _toDouble(result['distance']);
+
+      debugPrint(
+        'FaceAttendance backendResult status=$status '
+        'distance=${distance?.toStringAsFixed(4) ?? 'n/a'} '
+        'attendanceLog=${result['attendance_log'] ?? 'n/a'} '
+        'employeeId=$cleanLabourName',
+      );
+
+      if (status != 'success') {
+        throw ErpError(
+          serverMessage.isEmpty ? 'Face verification failed' : serverMessage,
+        );
+      }
+
+      return EmployeeCheckin(
+        name: '${result['attendance_log'] ?? ''}'.trim().isEmpty
+            ? 'attendance-${time.microsecondsSinceEpoch}'
+            : '${result['attendance_log']}',
+        employee: cleanLabourName,
+        logType: logType.toUpperCase(),
+        time: time,
+        shift: shift,
+        latitude: latitude,
+        longitude: longitude,
+        faceVerified: true,
+        faceDistance: distance,
+        serverMessage: serverMessage.isEmpty
+            ? 'Attendance marked successfully'
+            : serverMessage,
+      );
+    } on DioException catch (error) {
+      throw _buildErpError(
+        error,
+        fallback: 'Unable to verify face with ERPNext.',
+      );
+    }
+  }
+
   Future<FaceProfile?> getFaceProfile(String employee) async {
     try {
       return await _getFaceProfileViaCustomMethod(employee);
@@ -730,6 +816,9 @@ class ApiClient {
           averageEmbedding: embedding,
           modelVersion: modelVersion,
           qualityScore: qualityScore,
+          engineName: AppConfig.faceEngineName,
+          embeddingDimension: embedding.length,
+          thresholdVersion: AppConfig.faceThresholdVersion,
         ),
         'model_version': modelVersion,
         'quality_score': qualityScore,
@@ -1011,6 +1100,9 @@ class ApiClient {
         averageEmbedding: embedding,
         modelVersion: modelVersion,
         qualityScore: qualityScore,
+        engineName: AppConfig.faceEngineName,
+        embeddingDimension: embedding.length,
+        thresholdVersion: AppConfig.faceThresholdVersion,
       ),
       'sample_count': sampleCount,
       'is_active': 1,
@@ -1111,6 +1203,13 @@ class ApiClient {
       fallback: fallback,
     );
     return ErpError(message, statusCode: statusCode);
+  }
+
+  static double? _toDouble(Object? value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse('$value');
   }
 
   static bool _isNetworkError(DioException error) {

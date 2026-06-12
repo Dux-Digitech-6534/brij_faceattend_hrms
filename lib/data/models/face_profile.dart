@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../core/config/app_config.dart';
 import '../../core/utils/date_formats.dart';
 import '../../models/employee_face_data.dart';
 import 'employee.dart';
@@ -82,6 +83,9 @@ class FaceProfile {
     final storedAverage = EmployeeFaceData.decodeAveragePayload(
       json['face_embeddings'],
     );
+    final payloadModelVersion = EmployeeFaceData.decodeModelVersionPayload(
+      json['face_embeddings'],
+    );
     final legacyEmbedding = decodeEmbedding(json['face_embedding']);
     final average = storedAverage.isNotEmpty ? storedAverage : legacyEmbedding;
     return FaceProfile(
@@ -102,7 +106,7 @@ class FaceProfile {
       kbyTemplatesBase64: EmployeeFaceData.decodeStringList(
         json['kby_templates_base64'] ?? json['kby_templates'],
       ),
-      modelVersion: _string(json['face_model_version']),
+      modelVersion: _string(json['face_model_version']) ?? payloadModelVersion,
       faceQualityScore: _toDouble(json['face_quality_score']),
       faceRegistered: _toBool(json['face_registered']) ?? true,
       sampleCount: _toInt(json['sample_count'] ?? json['face_embedding_count']),
@@ -139,6 +143,9 @@ class FaceProfile {
         averageEmbedding: embedding,
         modelVersion: modelVersion,
         qualityScore: qualityScore,
+        engineName: AppConfig.faceEngineName,
+        embeddingDimension: embedding.length,
+        thresholdVersion: AppConfig.faceThresholdVersion,
       ),
       'face_registered': 1,
       'face_model_version': modelVersion,
@@ -175,6 +182,9 @@ class FaceProfile {
         averageEmbedding: embedding,
         modelVersion: modelVersion,
         qualityScore: qualityScore,
+        engineName: AppConfig.faceEngineName,
+        embeddingDimension: embedding.length,
+        thresholdVersion: AppConfig.faceThresholdVersion,
       ),
       'face_registered': 1,
       'face_model_version': modelVersion,

@@ -16,12 +16,20 @@ class FaceEmbeddingDebugInfo {
     required this.embeddingLength,
     required this.faceBoundingBox,
     required this.faceQualityScore,
+    required this.sourceImageSize,
+    required this.processedImageSize,
+    required this.cameraRotation,
+    required this.cropRect,
   });
 
   final List<int> modelInputShape;
   final int embeddingLength;
   final Rect faceBoundingBox;
   final double faceQualityScore;
+  final Size sourceImageSize;
+  final Size processedImageSize;
+  final int cameraRotation;
+  final Rect cropRect;
 }
 
 class FaceEmbeddingResult {
@@ -42,16 +50,24 @@ class FaceRecognitionService {
   int _inputHeight = 112;
   bool _channelLast = true;
 
+  Future<void> initialize() => _ensureModelLoaded();
+
   Future<FaceEmbeddingResult> createEmbedding({
     required CameraImage image,
     required Face face,
+    CameraDescription? camera,
     double faceQualityScore = 0,
   }) async {
     await _ensureModelLoaded();
-    final source = _cameraImageToRgbImage(image);
-    final crop = _cropAlignedFace(source, face);
+    final rawSource = _cameraImageToRgbImage(image);
+    final preparedSource = _imageMatchingFaceCoordinates(
+      source: rawSource,
+      face: face,
+      camera: camera,
+    );
+    final cropResult = _cropAlignedFace(preparedSource.image, face);
     final resized = img.copyResize(
-      crop,
+      cropResult.image,
       width: _inputWidth,
       height: _inputHeight,
       interpolation: img.Interpolation.linear,
@@ -63,7 +79,12 @@ class FaceRecognitionService {
     debugPrint(
       'FaceRecognition modelInputShape=$_inputShape '
       'embeddingLength=${embedding.length} faceBoundingBox=${face.boundingBox} '
-      'faceQualityScore=${faceQualityScore.toStringAsFixed(3)}',
+      'faceQualityScore=${faceQualityScore.toStringAsFixed(3)} '
+      'rawImage=${rawSource.width}x${rawSource.height} '
+      'processedImage=${preparedSource.image.width}x${preparedSource.image.height} '
+      'rotation=${preparedSource.rotationApplied} '
+      'cropRect=${cropResult.rect} '
+      'modelVersion=${AppConfig.faceModelVersion}',
     );
     return FaceEmbeddingResult(
       embedding: embedding,
@@ -72,6 +93,16 @@ class FaceRecognitionService {
         embeddingLength: embedding.length,
         faceBoundingBox: face.boundingBox,
         faceQualityScore: faceQualityScore,
+        sourceImageSize: Size(
+          rawSource.width.toDouble(),
+          rawSource.height.toDouble(),
+        ),
+        processedImageSize: Size(
+          preparedSource.image.width.toDouble(),
+          preparedSource.image.height.toDouble(),
+        ),
+        cameraRotation: preparedSource.rotationApplied,
+        cropRect: cropResult.rect,
       ),
     );
   }
@@ -108,11 +139,24 @@ class FaceRecognitionService {
 
   Future<void> _ensureModelLoaded() async {
     if (_interpreter != null) return;
-    final options = InterpreterOptions()..threads = 2;
-    final interpreter = await Interpreter.fromAsset(
-      AppConfig.faceModelAssetPath,
-      options: options,
+    debugPrint(
+      'FaceSDK fallback init start model=${AppConfig.faceModelAssetPath}',
     );
+    final options = InterpreterOptions()..threads = 2;
+    final Interpreter interpreter;
+    try {
+      interpreter = await Interpreter.fromAsset(
+        AppConfig.faceModelAssetPath,
+        options: options,
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        'FaceSDK fallback init failed model=${AppConfig.faceModelAssetPath} '
+        'error=$error',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+      rethrow;
+    }
     _interpreter = interpreter;
     _inputShape = interpreter.getInputTensor(0).shape;
     _outputShape = interpreter.getOutputTensor(0).shape;
@@ -131,7 +175,7 @@ class FaceRecognitionService {
       _inputWidth = shape[3];
     }
     debugPrint(
-      'FaceRecognition loaded ${AppConfig.faceModelAssetPath} '
+      'FaceSDK fallback init success model=${AppConfig.faceModelAssetPath} '
       'modelInputShape=$_inputShape outputShape=$_outputShape inputType=$_inputType',
     );
   }
@@ -211,7 +255,29 @@ class FaceRecognitionService {
     return values;
   }
 
-  img.Image _cropAlignedFace(img.Image source, Face face) {
+  _PreparedFaceSource _imageMatchingFaceCoordinates({
+    required img.Image source,
+    required Face face,
+    CameraDescription? camera,
+  }) {
+    final rotation = ((camera?.sensorOrientation ?? 0) % 360 + 360) % 360;
+    final rawSize = Size(source.width.toDouble(), source.height.toDouble());
+    final rotatedSize = _rotatedSize(rawSize, rotation);
+    final rect = face.boundingBox;
+    final fitsRaw = _fitsInFrame(rect, rawSize);
+    final fitsRotated = rotation != 0 && _fitsInFrame(rect, rotatedSize);
+
+    if (!fitsRaw && fitsRotated) {
+      return _PreparedFaceSource(
+        image: img.copyRotate(source, angle: rotation),
+        rotationApplied: rotation,
+      );
+    }
+
+    return _PreparedFaceSource(image: source, rotationApplied: 0);
+  }
+
+  _FaceCropResult _cropAlignedFace(img.Image source, Face face) {
     final rect = _expandedFaceRect(
       face.boundingBox,
       source.width,
@@ -236,7 +302,7 @@ class FaceRecognitionService {
         crop = img.copyRotate(crop, angle: -angle * 180 / math.pi);
       }
     }
-    return crop;
+    return _FaceCropResult(image: crop, rect: rect);
   }
 
   Rect _expandedFaceRect(Rect rect, int imageWidth, int imageHeight) {
@@ -254,6 +320,20 @@ class FaceRecognitionService {
       imageHeight.toDouble(),
     );
     return Rect.fromLTRB(left, top, right, bottom);
+  }
+
+  Size _rotatedSize(Size size, int rotation) {
+    if (rotation % 180 == 90) return Size(size.height, size.width);
+    return size;
+  }
+
+  bool _fitsInFrame(Rect rect, Size size) {
+    final slackX = size.width * 0.12;
+    final slackY = size.height * 0.14;
+    return rect.left >= -slackX &&
+        rect.top >= -slackY &&
+        rect.right <= size.width + slackX &&
+        rect.bottom <= size.height + slackY;
   }
 
   img.Image _cameraImageToRgbImage(CameraImage image) {
@@ -344,4 +424,21 @@ class FaceRecognitionService {
   }
 
   int _clip(double value) => value.round().clamp(0, 255);
+}
+
+class _PreparedFaceSource {
+  const _PreparedFaceSource({
+    required this.image,
+    required this.rotationApplied,
+  });
+
+  final img.Image image;
+  final int rotationApplied;
+}
+
+class _FaceCropResult {
+  const _FaceCropResult({required this.image, required this.rect});
+
+  final img.Image image;
+  final Rect rect;
 }

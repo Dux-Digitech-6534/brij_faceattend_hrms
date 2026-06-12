@@ -18,6 +18,7 @@ class KbyFaceTemplateResult {
     this.roll = 0,
     this.pitch = 0,
     this.failureReason,
+    this.engineUnavailable = false,
   });
 
   final bool success;
@@ -28,6 +29,7 @@ class KbyFaceTemplateResult {
   final double roll;
   final double pitch;
   final String? failureReason;
+  final bool engineUnavailable;
 
   bool get hasTemplate => templateBase64 != null && templateBase64!.isNotEmpty;
 }
@@ -38,12 +40,31 @@ class KbyFaceMatchResult {
     required this.similarity,
     required this.threshold,
     this.failureReason,
+    this.engineUnavailable = false,
   });
 
   final bool matched;
   final double similarity;
   final double threshold;
   final String? failureReason;
+  final bool engineUnavailable;
+}
+
+class KbyFaceEngineStatus {
+  const KbyFaceEngineStatus({
+    required this.available,
+    this.activationCode,
+    this.initCode,
+    this.failureReason,
+  });
+
+  final bool available;
+  final int? activationCode;
+  final int? initCode;
+  final String? failureReason;
+
+  String get selectedEngine =>
+      available ? 'KBY FaceSDK' : 'Flutter/TFLite fallback';
 }
 
 class KbyFaceRecognitionService {
@@ -51,7 +72,12 @@ class KbyFaceRecognitionService {
     : _plugin = plugin ?? FacesdkPlugin();
 
   final FacesdkPlugin _plugin;
-  Future<void>? _initFuture;
+  Future<KbyFaceEngineStatus>? _initFuture;
+  KbyFaceEngineStatus? _status;
+
+  Future<KbyFaceEngineStatus> initialize() {
+    return _initFuture ??= _initialize();
+  }
 
   Future<KbyFaceTemplateResult> extractTemplate({
     required CameraImage image,
@@ -67,10 +93,22 @@ class KbyFaceRecognitionService {
 
     File? tempFile;
     try {
-      await _ensureInitialized();
+      final status = await initialize();
+      if (!status.available) {
+        return KbyFaceTemplateResult(
+          success: false,
+          detectedFaceCount: 0,
+          failureReason: status.failureReason,
+          engineUnavailable: true,
+        );
+      }
       tempFile = await _writeFrameAsJpeg(image, camera);
       final faces = await _plugin.extractFaces(tempFile.path);
       final faceList = faces is List ? faces : const [];
+      debugPrint(
+        'FaceSDK KBY extract detectedFaceCount=${faceList.length} '
+        'image=${image.width}x${image.height}',
+      );
       if (faceList.isEmpty) {
         return const KbyFaceTemplateResult(
           success: false,
@@ -87,6 +125,11 @@ class KbyFaceRecognitionService {
       }
 
       final face = Map<Object?, Object?>.from(faceList.single as Map);
+      debugPrint(
+        'FaceSDK KBY face box='
+        '${face['x1']},${face['y1']},${face['x2']},${face['y2']} '
+        'landmarks=n/a',
+      );
       final templates = face['templates'];
       if (templates is! Uint8List || templates.isEmpty) {
         return const KbyFaceTemplateResult(
@@ -107,6 +150,11 @@ class KbyFaceRecognitionService {
         pitch: pitch,
       );
       if (failure != null) {
+        debugPrint(
+          'FaceSDK KBY quality rejected liveness=${liveness.toStringAsFixed(3)} '
+          'yaw=${yaw.toStringAsFixed(2)} roll=${roll.toStringAsFixed(2)} '
+          'pitch=${pitch.toStringAsFixed(2)} reason=$failure',
+        );
         return KbyFaceTemplateResult(
           success: false,
           detectedFaceCount: 1,
@@ -118,6 +166,11 @@ class KbyFaceRecognitionService {
         );
       }
 
+      debugPrint(
+        'FaceSDK KBY template success liveness=${liveness.toStringAsFixed(3)} '
+        'yaw=${yaw.toStringAsFixed(2)} roll=${roll.toStringAsFixed(2)} '
+        'pitch=${pitch.toStringAsFixed(2)} templateBytes=${templates.length}',
+      );
       return KbyFaceTemplateResult(
         success: true,
         detectedFaceCount: 1,
@@ -127,12 +180,13 @@ class KbyFaceRecognitionService {
         roll: roll,
         pitch: pitch,
       );
-    } catch (error) {
-      debugPrint('KBY face recognition failed: $error');
-      return const KbyFaceTemplateResult(
+    } catch (error, stackTrace) {
+      debugPrint('FaceSDK KBY extract failed error=$error');
+      debugPrintStack(stackTrace: stackTrace);
+      return KbyFaceTemplateResult(
         success: false,
         detectedFaceCount: 0,
-        failureReason: 'Face recognition engine unavailable.',
+        failureReason: 'KBY face recognition failed: $error',
       );
     } finally {
       try {
@@ -156,7 +210,16 @@ class KbyFaceRecognitionService {
     }
 
     try {
-      await _ensureInitialized();
+      final status = await initialize();
+      if (!status.available) {
+        return KbyFaceMatchResult(
+          matched: false,
+          similarity: 0,
+          threshold: threshold,
+          failureReason: status.failureReason,
+          engineUnavailable: true,
+        );
+      }
       final live = base64Decode(liveTemplateBase64);
       var best = 0.0;
       for (final storedBase64 in registeredTemplatesBase64) {
@@ -169,14 +232,20 @@ class KbyFaceRecognitionService {
             0;
         if (score > best) best = score;
       }
+      debugPrint(
+        'FaceSDK KBY similarity best=${best.toStringAsFixed(4)} '
+        'threshold=${threshold.toStringAsFixed(2)} '
+        'registeredTemplates=${registeredTemplatesBase64.length}',
+      );
       return KbyFaceMatchResult(
         matched: best >= threshold,
         similarity: best,
         threshold: threshold,
         failureReason: best >= threshold ? null : 'Face not matched.',
       );
-    } catch (error) {
-      debugPrint('KBY face comparison failed: $error');
+    } catch (error, stackTrace) {
+      debugPrint('FaceSDK KBY comparison failed error=$error');
+      debugPrintStack(stackTrace: stackTrace);
       return KbyFaceMatchResult(
         matched: false,
         similarity: 0,
@@ -186,26 +255,89 @@ class KbyFaceRecognitionService {
     }
   }
 
-  Future<void> _ensureInitialized() {
-    return _initFuture ??= _initialize();
-  }
-
-  Future<void> _initialize() async {
-    if (Platform.isAndroid) {
-      final activation = await _plugin.setActivation(
-        'PjnUMBHfBhtT/oa8ySF6mwinqAj2oBls4vSsDmsdrpL/xHwPLtq9Dll/4IIe2KIkXQEh81/21yQhK'
-        'AUQOmCvuuNcaZX+DS/EBhinprH+Y+XBzdGz2KWKEZjeDnhoSo8ql1CDDmMiCdRleZ7PbcPv10/dkdI'
-        'mwGLFerErQxL/qKIz+8CQqOryw/7RjpNgkbpufY+Nd635HN3dbG4Z+AKdpsl2hB+hl/16O1IhQiGia'
-        '4V2+1q9PsFfj6HFST+CQD17kXfsXkoQzMsFwQn4BSuyiiPUdHfJ+EFYMoeF96Jhqfe1CH3af41l0wK'
-        'LNqXthBE24m96v06lDFPXkxDOCZCzug==',
+  Future<KbyFaceEngineStatus> _initialize() async {
+    if (_status != null) return _status!;
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      _status = const KbyFaceEngineStatus(
+        available: false,
+        failureReason: 'KBY face recognition is available only on mobile.',
       );
-      if (activation != 0) {
-        throw StateError('KBY activation failed: $activation');
-      }
+      debugPrint(
+        'FaceSDK init status selectedEngine=${_status!.selectedEngine} '
+        'reason=${_status!.failureReason}',
+      );
+      return _status!;
     }
-    final init = await _plugin.init();
-    if (init != 0) throw StateError('KBY init failed: $init');
-    await _plugin.setParam({'check_liveness_level': 0});
+
+    int? activation;
+    int? init;
+    try {
+      debugPrint('FaceSDK KBY init start platform=${Platform.operatingSystem}');
+      if (Platform.isAndroid) {
+        activation = await _plugin.setActivation(
+          'PjnUMBHfBhtT/oa8ySF6mwinqAj2oBls4vSsDmsdrpL/xHwPLtq9Dll/4IIe2KIkXQEh81/21yQhK'
+          'AUQOmCvuuNcaZX+DS/EBhinprH+Y+XBzdGz2KWKEZjeDnhoSo8ql1CDDmMiCdRleZ7PbcPv10/dkdI'
+          'mwGLFerErQxL/qKIz+8CQqOryw/7RjpNgkbpufY+Nd635HN3dbG4Z+AKdpsl2hB+hl/16O1IhQiGia'
+          '4V2+1q9PsFfj6HFST+CQD17kXfsXkoQzMsFwQn4BSuyiiPUdHfJ+EFYMoeF96Jhqfe1CH3af41l0wK'
+          'LNqXthBE24m96v06lDFPXkxDOCZCzug==',
+        );
+        debugPrint('FaceSDK KBY activation code=$activation');
+        if (activation != 0) {
+          _status = KbyFaceEngineStatus(
+            available: false,
+            activationCode: activation,
+            failureReason: 'KBY activation failed with code $activation.',
+          );
+          debugPrint(
+            'FaceSDK init status selectedEngine=${_status!.selectedEngine} '
+            'activationCode=$activation initCode=n/a reason=${_status!.failureReason}',
+          );
+          return _status!;
+        }
+      }
+      init = await _plugin.init();
+      debugPrint('FaceSDK KBY native init code=$init');
+      if (init != 0) {
+        _status = KbyFaceEngineStatus(
+          available: false,
+          activationCode: activation,
+          initCode: init,
+          failureReason: 'KBY native init failed with code $init.',
+        );
+        debugPrint(
+          'FaceSDK init status selectedEngine=${_status!.selectedEngine} '
+          'activationCode=${activation ?? 'n/a'} initCode=$init '
+          'reason=${_status!.failureReason}',
+        );
+        return _status!;
+      }
+      await _plugin.setParam({'check_liveness_level': 0});
+      _status = KbyFaceEngineStatus(
+        available: true,
+        activationCode: activation,
+        initCode: init,
+      );
+      debugPrint(
+        'FaceSDK init status selectedEngine=${_status!.selectedEngine} '
+        'activationCode=${activation ?? 'n/a'} initCode=$init '
+        'licenseStatus=loaded modelStatus=loaded',
+      );
+      return _status!;
+    } catch (error, stackTrace) {
+      _status = KbyFaceEngineStatus(
+        available: false,
+        activationCode: activation,
+        initCode: init,
+        failureReason: 'KBY initialization exception: $error',
+      );
+      debugPrint(
+        'FaceSDK init status selectedEngine=${_status!.selectedEngine} '
+        'activationCode=${activation ?? 'n/a'} initCode=${init ?? 'n/a'} '
+        'reason=${_status!.failureReason}',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+      return _status!;
+    }
   }
 
   Future<File> _writeFrameAsJpeg(
