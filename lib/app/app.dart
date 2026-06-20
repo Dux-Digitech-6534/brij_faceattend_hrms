@@ -4,8 +4,8 @@ import '../core/config/app_config.dart';
 import '../core/theme/app_theme.dart';
 import '../features/splash/splash_screen.dart';
 
-class FaceAttendApp extends StatelessWidget {
-  const FaceAttendApp({super.key});
+class BrijDairyHrmsApp extends StatelessWidget {
+  const BrijDairyHrmsApp({super.key});
 
   @override
   Widget build(BuildContext context) {

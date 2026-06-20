@@ -8,14 +8,32 @@ class PoweredByFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      AppConfig.poweredBy,
-      textAlign: TextAlign.center,
-      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-        color: AppColors.faint,
-        fontWeight: FontWeight.w800,
-        letterSpacing: 0,
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          AppConfig.poweredBy,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: AppColors.faint,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Image.asset(
+          'assets/icons/dux_logo.png',
+          height: 30,
+          fit: BoxFit.contain,
+          errorBuilder: (_, _, _) => Text(
+            AppConfig.developerName,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: AppColors.text,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -502,9 +502,7 @@ class _TodayCard extends StatelessWidget {
           OutlinedButton.icon(
             onPressed: isLoading ? null : onRegisterFace,
             icon: const Icon(Icons.face_retouching_natural_rounded),
-            label: Text(
-              data.employee.faceRegistered ? 'Update Face' : 'Register Face',
-            ),
+            label: const Text('Update Face'),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
               foregroundColor: AppColors.primary,

@@ -50,6 +50,7 @@ class AttendanceRepository {
     required double accuracy,
     required bool faceVerified,
     required String capturedImagePath,
+    required List<double> faceEmbedding,
     String appDeviceId = AppConfig.appDeviceId,
   }) async {
     final shift = employee.resolvedShift;
@@ -59,15 +60,32 @@ class AttendanceRepository {
 
     final normalizedLogType = logType.toUpperCase();
 
-    return _apiClient.verifyFaceAndMarkAttendance(
-      labourName: employee.name,
-      imagePath: capturedImagePath,
-      shift: shift,
-      logType: normalizedLogType,
-      time: time,
-      latitude: latitude,
-      longitude: longitude,
-    );
+    try {
+      return await _apiClient.verifyFaceAndMarkAttendance(
+        labourName: employee.name,
+        imagePath: capturedImagePath,
+        shift: shift,
+        logType: normalizedLogType,
+        time: time,
+        latitude: latitude,
+        longitude: longitude,
+        appDeviceId: appDeviceId,
+        faceEmbedding: faceEmbedding,
+      );
+    } catch (error) {
+      if (!isServerMethodMissingError(error)) rethrow;
+      return _apiClient.createEmployeeCheckin(
+        employee: employee.name,
+        shift: shift,
+        logType: normalizedLogType,
+        time: time,
+        latitude: latitude,
+        longitude: longitude,
+        accuracy: accuracy,
+        faceVerified: faceVerified,
+        appDeviceId: appDeviceId,
+      );
+    }
   }
 
   Future<void> logout() => _apiClient.logout();

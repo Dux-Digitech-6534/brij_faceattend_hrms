@@ -302,9 +302,7 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
                     _InfoLine(label: 'Server', value: AppConfig.baseUrl),
                     _InfoLine(
                       label: 'Attendance API',
-                      value: AppConfig.useCustomAttendanceEndpoint
-                          ? AppConfig.customAttendanceEndpoint
-                          : '/api/resource/Employee Checkin',
+                      value: AppConfig.faceAttendanceEndpoint,
                     ),
                     const SizedBox(height: 16),
                     PremiumActionButton(

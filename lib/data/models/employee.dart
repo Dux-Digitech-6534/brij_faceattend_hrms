@@ -190,7 +190,7 @@ class Employee {
       userId: user,
       designation: 'HRMS User',
       department: 'Demo',
-      company: 'Jew Online',
+      company: 'Brij Dairy',
       defaultShift: 'General Shift',
       activeShift: 'General Shift',
       status: 'Active',

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -57,6 +58,10 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
   DateTime _scanStartedAt = DateTime.now();
   DateTime _istNow = DateFormats.istNow();
   DateTime _lastFrameAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Position? _lastPosition;
+  DateTime? _submittedAt;
+  List<double> _liveEmbedding = const [];
+  final List<List<double>> _liveEmbeddingSamples = <List<double>>[];
   Timer? _clockTimer;
 
   bool get _isMarkIn => widget.logType.toUpperCase() == 'IN';
@@ -130,6 +135,8 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
       _livenessPassed = false;
       _livenessMessage = 'Face quality check ready.';
       _failureReason = null;
+      _liveEmbedding = const [];
+      _liveEmbeddingSamples.clear();
       _scanStartedAt = DateTime.now();
     });
 
@@ -189,6 +196,7 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
     }
     _lastFrameAt = now;
     _processingFrame = true;
+    final scope = AppScope.of(context);
 
     try {
       final inputImage = _inputImageFromCameraImage(image);
@@ -218,6 +226,8 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
             _serverVerificationReady = false;
             _failureReason = validation.failureReason;
             _verificationFailed = true;
+            _liveEmbedding = const [];
+            _liveEmbeddingSamples.clear();
           });
         }
         debugPrint(
@@ -229,19 +239,56 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
         return;
       }
 
+      final embedding = await scope.faceEmbeddingService.createEmbedding(
+        image: image,
+        face: validation.face!,
+        camera: _camera,
+        faceQualityScore: validation.faceQualityScore,
+      );
+      if (embedding.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _serverVerificationReady = false;
+            _failureReason = 'face_embedding_failed';
+            _verificationFailed = true;
+            _liveEmbedding = const [];
+            _liveEmbeddingSamples.clear();
+          });
+        }
+        return;
+      }
+
+      _liveEmbeddingSamples.add(embedding);
+      if (_liveEmbeddingSamples.length >
+          AppConfig.faceRecognitionStableFrames) {
+        _liveEmbeddingSamples.removeAt(0);
+      }
+      final stableEmbedding = scope.faceEmbeddingService.averageEmbeddings(
+        _liveEmbeddingSamples,
+      );
+      final stableFrameCount = _liveEmbeddingSamples.length;
+      final readyForBackend =
+          stableEmbedding.isNotEmpty &&
+          stableFrameCount >= AppConfig.faceRecognitionStableFrames;
+
       if (mounted) {
         setState(() {
-          _livenessPassed = true;
-          _livenessMessage = 'Face ready for ERPNext verification.';
+          _livenessPassed = readyForBackend;
+          _livenessMessage = readyForBackend
+              ? 'Face ready for ERPNext verification.'
+              : 'Face quality check ready.';
           _failureReason = null;
           _verificationFailed = false;
-          _serverVerificationReady = true;
+          _serverVerificationReady = readyForBackend;
+          _liveEmbedding = readyForBackend ? stableEmbedding : const [];
         });
       }
       debugPrint(
-        'FaceAttendance faceReadyForBackend=true localIdentityMatchUsed=false '
+        'FaceAttendance faceReadyForBackend=$readyForBackend localIdentityMatchUsed=false '
         'employeeId=${widget.employee.name} detectedFaces=${validation.detectedFaceCount} '
         'faceQualityScore=${validation.faceQualityScore.toStringAsFixed(3)} '
+        'stableFrames=$stableFrameCount/${AppConfig.faceRecognitionStableFrames} '
+        'embeddingLength=${stableEmbedding.length} '
         'attendanceApiCalled=false',
       );
     } catch (error, stackTrace) {
@@ -253,8 +300,8 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
       debugPrintStack(stackTrace: stackTrace);
       if (mounted && _faceDetected) {
         setState(() {
-            _faceDetected = false;
-          });
+          _faceDetected = false;
+        });
       }
     } finally {
       _processingFrame = false;
@@ -265,6 +312,9 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
     if (widget.employee.name.trim().isEmpty) return 'Employee not found.';
     if (!_serverVerificationReady || !_faceDetected || !_livenessPassed) {
       return 'Keep your face centered before ERPNext verification.';
+    }
+    if (_liveEmbedding.isEmpty) {
+      return 'Keep your face centered while the app prepares verification.';
     }
     return null;
   }
@@ -367,6 +417,12 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
       );
       final scope = AppScope.of(context);
       final position = await scope.locationService.determinePosition();
+      if (mounted) {
+        setState(() {
+          _lastPosition = position;
+          _submittedAt = DateTime.now();
+        });
+      }
       final capturedImagePath = await _captureAttendanceImagePath();
       final result = await scope.repository.markAttendance(
         employee: widget.employee,
@@ -377,6 +433,7 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
         accuracy: position.accuracy,
         faceVerified: true,
         capturedImagePath: capturedImagePath,
+        faceEmbedding: _liveEmbedding,
       );
       await _stopImageStream();
       if (!mounted) return;
@@ -430,9 +487,9 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
 
   @override
   Widget build(BuildContext context) {
-    final actionColor = _isMarkIn ? AppColors.green : AppColors.red;
+    final actionColor = AppColors.primary;
     return Scaffold(
-      appBar: AppBar(title: Text(_isMarkIn ? 'Face Mark In' : 'Face Mark Out')),
+      appBar: AppBar(title: const Text('Attendance')),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
@@ -504,6 +561,12 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
               ),
             ),
             const SizedBox(height: 18),
+            _AttendanceDetailsCard(
+              istNow: _istNow,
+              position: _lastPosition,
+              submittedAt: _submittedAt,
+            ),
+            const SizedBox(height: 18),
             _CameraPanel(
               controller: _cameraController,
               scanController: _scanController,
@@ -566,9 +629,7 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
             PremiumActionButton(
               label: _isMarkIn ? 'Confirm Mark In' : 'Confirm Mark Out',
               icon: _isMarkIn ? Icons.login_rounded : Icons.logout_rounded,
-              colors: _isMarkIn
-                  ? const [Color(0xFF00D090), AppColors.green]
-                  : const [Color(0xFFFF6680), AppColors.red],
+              colors: const [AppColors.redLight, AppColors.primary],
               isLoading: _submitting,
               onPressed: _serverVerificationReady && _hasShift && !_submitting
                   ? _submit
@@ -596,7 +657,9 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
     if (!_hasShift) return 'Shift not assigned. Please contact HR.';
     if (_submitting) return 'Sending live image and GPS to ERPNext.';
     if (_faceVerified) return 'Backend confirmed the face match.';
-    if (_serverVerificationReady) return 'Tap confirm to verify and mark attendance.';
+    if (_serverVerificationReady) {
+      return 'Tap confirm to verify and mark attendance.';
+    }
     if (_timedOut) return 'Please face the camera clearly.';
     if (!_livenessPassed && _faceDetected) return _livenessMessage;
     if (_verificationFailed) {
@@ -607,6 +670,105 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
       return 'Keep your face centered for the backend check.';
     }
     return 'Keep your face centered inside the scan frame.';
+  }
+}
+
+class _AttendanceDetailsCard extends StatelessWidget {
+  const _AttendanceDetailsCard({
+    required this.istNow,
+    required this.position,
+    required this.submittedAt,
+  });
+
+  final DateTime istNow;
+  final Position? position;
+  final DateTime? submittedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final captured = position != null;
+    return PremiumCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _DetailRow(
+            icon: Icons.access_time_rounded,
+            title: 'Timestamp',
+            value: submittedAt == null
+                ? 'IST ${DateFormats.istClock.format(istNow)}'
+                : DateFormats.forErp(submittedAt!),
+          ),
+          const Divider(height: 20, color: AppColors.border),
+          _DetailRow(
+            icon: Icons.location_on_rounded,
+            title: 'Location',
+            value: captured
+                ? 'GPS locked for Brij Dairy HRMS'
+                : 'Captured during submit',
+          ),
+          const Divider(height: 20, color: AppColors.border),
+          _DetailRow(
+            icon: Icons.gps_fixed_rounded,
+            title: 'GPS Coordinates',
+            value: captured
+                ? '${position!.latitude.toStringAsFixed(5)}, ${position!.longitude.toStringAsFixed(5)}'
+                : 'Pending secure GPS capture',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: AppColors.primarySoft,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: AppColors.primary, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: AppColors.text,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.muted,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 

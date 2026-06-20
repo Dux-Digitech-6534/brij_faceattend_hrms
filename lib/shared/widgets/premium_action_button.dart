@@ -54,9 +54,9 @@ class _PremiumActionButtonState extends State<PremiumActionButton> {
             ),
             boxShadow: [
               BoxShadow(
-                color: colors.last.withValues(alpha: _enabled ? 0.34 : 0.14),
-                blurRadius: _pressed ? 14 : 24,
-                offset: Offset(0, _pressed ? 8 : 14),
+                color: colors.last.withValues(alpha: _enabled ? 0.26 : 0.12),
+                blurRadius: _pressed ? 10 : 18,
+                offset: Offset(0, _pressed ? 5 : 9),
               ),
             ],
           ),

@@ -4,19 +4,21 @@ import 'package:google_fonts/google_fonts.dart';
 class AppColors {
   const AppColors._();
 
-  static const primary = Color(0xFFFF7A3D);
-  static const primarySoft = Color(0xFF342335);
-  static const secondary = Color(0xFFFF4E8A);
-  static const green = Color(0xFF20D08A);
-  static const red = Color(0xFFFF5C7A);
-  static const amber = Color(0xFFFFB547);
-  static const background = Color(0xFF0E1117);
-  static const surface = Color(0xFF181D27);
-  static const surfaceAlt = Color(0xFF222938);
-  static const text = Color(0xFFF8FAFC);
-  static const muted = Color(0xFFC1C8D4);
-  static const faint = Color(0xFF8D97A8);
-  static const border = Color(0xFF2D3547);
+  static const primary = Color(0xFFD00012);
+  static const primarySoft = Color(0xFFFFEBEE);
+  static const secondary = Color(0xFFB00010);
+  static const green = Color(0xFF15916A);
+  static const red = Color(0xFFD00012);
+  static const amber = Color(0xFFB0741A);
+  static const background = Color(0xFFF6F7FA);
+  static const surface = Color(0xFFFFFFFF);
+  static const surfaceAlt = Color(0xFFF9FAFC);
+  static const text = Color(0xFF171A23);
+  static const muted = Color(0xFF586273);
+  static const faint = Color(0xFF8A93A3);
+  static const border = Color(0xFFE2E5EB);
+  static const redDeep = Color(0xFF9E000C);
+  static const redLight = Color(0xFFE31B2B);
 }
 
 class AppTheme {
@@ -27,7 +29,7 @@ class AppTheme {
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primary,
-        brightness: Brightness.dark,
+        brightness: Brightness.light,
         primary: AppColors.primary,
         secondary: AppColors.secondary,
         surface: AppColors.surface,
@@ -44,16 +46,17 @@ class AppTheme {
       appBarTheme: AppBarTheme(
         elevation: 0,
         centerTitle: false,
-        backgroundColor: AppColors.background,
-        foregroundColor: AppColors.text,
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
         titleTextStyle: textTheme.titleLarge?.copyWith(
           fontWeight: FontWeight.w800,
-          color: AppColors.text,
+          color: Colors.white,
         ),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surfaceAlt,
+        fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 16,
@@ -79,7 +82,7 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: AppColors.surfaceAlt,
+        backgroundColor: AppColors.text,
         contentTextStyle: textTheme.bodyMedium?.copyWith(
           color: AppColors.text,
           fontWeight: FontWeight.w700,

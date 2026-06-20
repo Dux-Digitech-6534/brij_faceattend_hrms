@@ -1,12 +1,13 @@
 class AppConfig {
   const AppConfig._();
 
-  static const appName = 'DUX FaceAttend HRMS';
-  static const tagline = 'ERPNext HRMS face attendance';
-  static const brandName = 'DUX Digitech';
-  static const poweredBy = 'Powered by DUX Digitech';
-  static const baseUrl = 'https://erp.jewonline.in';
-  static const appDeviceId = 'FACEATTEND_ANDROID';
+  static const appName = 'Brij Dairy HRMS';
+  static const tagline = 'ERPNext HRMS attendance';
+  static const brandName = 'Brij Dairy';
+  static const developerName = 'DUX Digitech';
+  static const poweredBy = 'Designed & Developed by DUX Digitech';
+  static const baseUrl = 'https://app.brijdairy.com';
+  static const appDeviceId = 'BRIJ_DAIRY_HRMS_ANDROID';
   static const faceStrongMatchThreshold = 0.90;
   static const faceMediumMatchThreshold = 0.78;
   static const faceCosineThreshold = faceStrongMatchThreshold;
@@ -25,12 +26,11 @@ class AppConfig {
   static const faceModelVersion = 'kby-face-sdk-mobilefacenet-112-aligned-v3';
   static const faceRegistrationSampleCount = 5;
 
-  // Backend verifies the live face against ERPNext's stored reference image and
-  // creates the Attendance Log only after message.status == success.
   static const faceAttendanceEndpoint =
-      '/api/method/faceattend_hrms.api.face_attendance.verify_face_and_mark_attendance';
+      '/api/method/brij_ventures.api.mobile.verify_face_and_mark_attendance';
 
   // Kept for existing UI labels that show which attendance API is active.
   static const useCustomAttendanceEndpoint = true;
-  static const customAttendanceEndpoint = faceAttendanceEndpoint;
+  static const customAttendanceEndpoint =
+      '/api/method/brij_ventures.api.mobile.mark_employee_checkin';
 }

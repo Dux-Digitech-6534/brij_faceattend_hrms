@@ -34,7 +34,7 @@ Future<void> main() async {
       faceEmbeddingService: faceEmbeddingService,
       faceProfileService: faceProfileService,
       employeeFaceStorageService: employeeFaceStorageService,
-      child: const FaceAttendApp(),
+      child: const BrijDairyHrmsApp(),
     ),
   );
 }

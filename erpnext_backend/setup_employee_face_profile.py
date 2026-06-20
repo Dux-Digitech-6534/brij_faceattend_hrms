@@ -41,7 +41,63 @@ def create_employee_face_fields():
                 "fieldtype": "Int",
                 "insert_after": "face_quality_score",
             },
-        ]
+        ],
+        "Employee Checkin": [
+            {
+                "fieldname": "custom_latitude",
+                "label": "Latitude",
+                "fieldtype": "Float",
+                "insert_after": "device_id",
+            },
+            {
+                "fieldname": "custom_longitude",
+                "label": "Longitude",
+                "fieldtype": "Float",
+                "insert_after": "custom_latitude",
+            },
+            {
+                "fieldname": "custom_location",
+                "label": "Location",
+                "fieldtype": "Small Text",
+                "insert_after": "custom_longitude",
+            },
+            {
+                "fieldname": "custom_device_time",
+                "label": "Device Time",
+                "fieldtype": "Datetime",
+                "insert_after": "custom_location",
+            },
+            {
+                "fieldname": "custom_app_source",
+                "label": "App Source",
+                "fieldtype": "Data",
+                "insert_after": "custom_device_time",
+            },
+            {
+                "fieldname": "custom_app_device_id",
+                "label": "App Device ID",
+                "fieldtype": "Data",
+                "insert_after": "custom_app_source",
+            },
+            {
+                "fieldname": "custom_gps_accuracy",
+                "label": "GPS Accuracy",
+                "fieldtype": "Float",
+                "insert_after": "custom_app_device_id",
+            },
+            {
+                "fieldname": "custom_face_verified",
+                "label": "Face Verified",
+                "fieldtype": "Check",
+                "insert_after": "custom_gps_accuracy",
+            },
+            {
+                "fieldname": "custom_source",
+                "label": "Source",
+                "fieldtype": "Data",
+                "insert_after": "custom_face_verified",
+            },
+        ],
     }
     create_custom_fields(custom_fields, update=True)
 

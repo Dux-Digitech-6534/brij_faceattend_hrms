@@ -1,5 +1,5 @@
-name: faceattend_hrms
-description: "Premium ERPNext HRMS face attendance app for Android."
+name: brij_dairy_hrms
+description: "Brij Dairy HRMS Android app by DUX Digitech."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -78,7 +78,7 @@ flutter_launcher_icons:
   android: true
   ios: false
   image_path: "assets/icons/app_icon.png"
-  adaptive_icon_background: "#5B52F0"
+  adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: "assets/icons/app_icon.png"
 
   # To add assets to your application, add an assets section, like this:

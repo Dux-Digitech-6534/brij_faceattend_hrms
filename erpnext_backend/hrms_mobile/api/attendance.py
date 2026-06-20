@@ -515,9 +515,12 @@ def mark_employee_checkin(employee=None, log_type=None, time=None, latitude=None
 	_set_if_field_exists(doc, 'longitude', longitude)
 	_set_if_field_exists(doc, 'custom_latitude', latitude)
 	_set_if_field_exists(doc, 'custom_longitude', longitude)
+	_set_if_field_exists(doc, 'custom_location', kwargs.get('location') or kwargs.get('address') or f'{latitude}, {longitude}')
+	_set_if_field_exists(doc, 'custom_device_time', kwargs.get('device_time') or checkin_time)
+	_set_if_field_exists(doc, 'custom_app_source', kwargs.get('app_source') or kwargs.get('source') or 'Brij Dairy HRMS Android App')
 	_set_if_field_exists(doc, 'custom_gps_accuracy', kwargs.get('gps_accuracy') or kwargs.get('accuracy'))
 	_set_if_field_exists(doc, 'custom_face_verified', kwargs.get('face_verified') if kwargs.get('face_verified') is not None else 1)
-	_set_if_field_exists(doc, 'custom_source', 'FaceAttend HRMS Flutter App')
+	_set_if_field_exists(doc, 'custom_source', kwargs.get('source') or 'Brij Dairy HRMS Android App')
 
 	doc.insert(ignore_permissions=True)
 	frappe.db.commit()
@@ -533,7 +536,7 @@ def mark_employee_checkin(employee=None, log_type=None, time=None, latitude=None
 
 
 @frappe.whitelist()
-def mark_attendance(employee=None, log_type=None, timestamp=None, latitude=None, longitude=None, gps_accuracy=None, mock_location=False, device_id=None, face_match_score=None, app_version=None):
+def mark_attendance(employee=None, log_type=None, timestamp=None, latitude=None, longitude=None, gps_accuracy=None, mock_location=False, device_id=None, face_match_score=None, app_version=None, device_time=None, location=None, app_source=None):
 	require_employee_access(employee)
 	timestamp = get_datetime(timestamp) if timestamp else now_datetime()
 	try:
@@ -562,7 +565,17 @@ def mark_attendance(employee=None, log_type=None, timestamp=None, latitude=None,
 		fence, distance, geo_error = validate_geofence(employee, latitude, longitude)
 		if geo_error:
 			raise ValueError(geo_error)
-		checkin = frappe.get_doc({'doctype': 'Employee Checkin', 'employee': employee, 'log_type': resolved_log_type, 'time': timestamp, 'device_id': device_id}).insert(ignore_permissions=True)
+		checkin = frappe.get_doc({'doctype': 'Employee Checkin', 'employee': employee, 'log_type': resolved_log_type, 'time': timestamp, 'device_id': device_id})
+		_set_if_field_exists(checkin, 'latitude', latitude)
+		_set_if_field_exists(checkin, 'longitude', longitude)
+		_set_if_field_exists(checkin, 'custom_latitude', latitude)
+		_set_if_field_exists(checkin, 'custom_longitude', longitude)
+		_set_if_field_exists(checkin, 'custom_location', location or f'{latitude}, {longitude}')
+		_set_if_field_exists(checkin, 'custom_device_time', device_time or timestamp)
+		_set_if_field_exists(checkin, 'custom_app_source', app_source or 'Brij Dairy HRMS Android App')
+		_set_if_field_exists(checkin, 'custom_app_device_id', device_id)
+		_set_if_field_exists(checkin, 'custom_gps_accuracy', gps_accuracy)
+		checkin.insert(ignore_permissions=True)
 		log = _log(employee, resolved_log_type, timestamp, latitude, longitude, distance, face_match_score, device_id, app_version, 'Success', None, checkin.name)
 		frappe.db.commit()
 		return success({'employee_checkin': checkin.name, 'attendance_log': log.name, 'log_type': resolved_log_type, 'time': timestamp, 'site': fence.site_name if fence else None, 'distance': distance}, 'Attendance marked')

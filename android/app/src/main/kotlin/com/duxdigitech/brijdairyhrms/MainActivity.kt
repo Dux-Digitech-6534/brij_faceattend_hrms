@@ -1,4 +1,4 @@
-package `in`.jewonline.faceattend_hrms
+package com.duxdigitech.brijdairyhrms
 
 import io.flutter.embedding.android.FlutterActivity
 

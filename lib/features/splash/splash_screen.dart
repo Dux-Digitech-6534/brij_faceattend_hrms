@@ -4,6 +4,7 @@ import '../../app/app_scope.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/erp_error.dart';
 import '../../shared/widgets/app_logo.dart';
+import '../../shared/widgets/dairy_backdrop.dart';
 import '../../shared/widgets/powered_by_footer.dart';
 import '../auth/login_screen.dart';
 import '../home/home_screen.dart';
@@ -56,18 +57,37 @@ class _SplashScreenState extends State<SplashScreen> {
   Widget build(BuildContext context) {
     return const Scaffold(
       backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.all(22),
-          child: Column(
-            children: [
-              Spacer(),
-              AppLogo(size: 86),
-              Spacer(),
-              PoweredByFooter(),
-            ],
+      body: Stack(
+        children: [
+          DairyBackdrop(alignment: Alignment.bottomCenter, opacity: 0.16),
+          SafeArea(
+            child: Padding(
+              padding: EdgeInsets.all(22),
+              child: Column(
+                children: [
+                  Spacer(),
+                  Center(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.all(Radius.circular(8)),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 28,
+                          vertical: 28,
+                        ),
+                        child: AppLogo(size: 92),
+                      ),
+                    ),
+                  ),
+                  Spacer(),
+                  PoweredByFooter(),
+                ],
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

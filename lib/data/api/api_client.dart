@@ -92,31 +92,37 @@ class ApiClient {
   }
 
   Future<Employee> getEmployeeByUser(String user) async {
+    final loggedUser = user.trim();
+    if (loggedUser.isEmpty) {
+      await _sessionStore.clear();
+      throw _noLinkedEmployeeError();
+    }
+
     try {
-      final employee = await _getMyEmployeeProfile(user);
+      final employee = await _getMyEmployeeProfile(loggedUser);
       return await _cacheActiveEmployee(employee);
     } on DioException catch (customError) {
       if (!_canFallbackFromCustomMethod(customError)) {
         await _sessionStore.clear();
-        throw _inactiveEmployeeError();
+        throw _employeeMappingError(customError);
       }
     }
 
     try {
-      final employee = await _getLoggedEmployeeViaCustomMethod(user);
+      final employee = await _getLoggedEmployeeViaCustomMethod(loggedUser);
       final resolvedEmployee = await _attachResolvedShift(employee);
       return await _cacheActiveEmployee(resolvedEmployee);
     } on DioException catch (customError) {
       if (!_canFallbackFromCustomMethod(customError)) {
         await _sessionStore.clear();
-        throw _inactiveEmployeeError();
+        throw _employeeMappingError(customError);
       }
     }
 
-    final employee = await _fetchEmployeeByEmailFallback(user);
+    final employee = await _fetchEmployeeByUserId(loggedUser);
     if (employee == null) {
       await _sessionStore.clear();
-      throw _inactiveEmployeeError();
+      throw _noLinkedEmployeeError();
     }
     final resolvedEmployee = await _attachResolvedShift(employee);
     return await _cacheActiveEmployee(resolvedEmployee);
@@ -124,24 +130,24 @@ class ApiClient {
 
   Future<Employee> _getMyEmployeeProfile(String user) async {
     final response = await _dio.get<Map<String, dynamic>>(
-      '/api/method/hrms_mobile.api.attendance.get_my_employee_profile',
+      '/api/method/brij_ventures.api.mobile.get_my_employee_profile',
     );
     final employee = _readEmployeeResponse(response.data, user);
     if (employee == null || employee.name.trim().isEmpty) {
       await _sessionStore.clear();
-      throw _inactiveEmployeeError();
+      throw _noLinkedEmployeeError();
     }
     return employee;
   }
 
   Future<Employee> _getLoggedEmployeeViaCustomMethod(String user) async {
     final response = await _dio.get<Map<String, dynamic>>(
-      '/api/method/hrms_mobile.api.attendance.get_logged_employee',
+      '/api/method/brij_ventures.api.mobile.get_logged_employee',
     );
     final employee = _readEmployeeResponse(response.data, user);
     if (employee == null || employee.name.trim().isEmpty) {
       await _sessionStore.clear();
-      throw _inactiveEmployeeError();
+      throw _noLinkedEmployeeError();
     }
     return employee;
   }
@@ -155,39 +161,38 @@ class ApiClient {
     return employee;
   }
 
-  Future<Employee?> _fetchEmployeeByEmailFallback(String user) async {
-    for (final field in _employeeEmailLookupFields) {
-      try {
-        final response = await _dio.get<Map<String, dynamic>>(
-          '/api/resource/Employee',
-          queryParameters: {
-            'filters': jsonEncode([
-              [field, '=', user],
-            ]),
-            'fields': jsonEncode(_employeeListFields),
-            'limit_page_length': 1,
-          },
-        );
+  Future<Employee?> _fetchEmployeeByUserId(String user) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/resource/Employee',
+        queryParameters: {
+          'filters': jsonEncode([
+            ['user_id', '=', user],
+          ]),
+          'fields': jsonEncode(_employeeCoreListFields),
+          'limit_page_length': 1,
+        },
+      );
 
-        final data = response.data?['data'];
-        if (data is! List || data.isEmpty || data.first is! Map) {
-          continue;
-        }
-
-        final row = Map<String, dynamic>.from(data.first as Map);
-        final employeeName = '${row['name'] ?? ''}';
-        if (employeeName.isEmpty) continue;
-        return await _fetchEmployeeDetailsByName(employeeName, user) ??
-            Employee.fromJson({...row, 'user_id': user});
-      } on DioException catch (error) {
-        if (_isFieldOrPermissionError(error) || _isMissingFieldError(error)) {
-          continue;
-        }
-        continue;
+      final data = response.data?['data'];
+      if (data is! List || data.isEmpty || data.first is! Map) {
+        return null;
       }
-    }
 
-    return null;
+      final row = Map<String, dynamic>.from(data.first as Map);
+      final employeeName = '${row['name'] ?? ''}';
+      if (employeeName.isEmpty) return null;
+      return await _fetchEmployeeDetailsByName(employeeName, user) ??
+          Employee.fromJson({
+            ...row,
+            if (row['user_id'] == null) 'user_id': user,
+          });
+    } on DioException catch (error) {
+      if (_isFieldOrPermissionError(error) || _isMissingFieldError(error)) {
+        return null;
+      }
+      return null;
+    }
   }
 
   Future<Employee?> _fetchEmployeeDetailsByName(
@@ -357,6 +362,8 @@ class ApiClient {
             'log_type',
             'shift',
             'device_id',
+            'latitude',
+            'longitude',
             'skip_auto_attendance',
           ]),
           'order_by': 'time desc',
@@ -386,7 +393,7 @@ class ApiClient {
   }) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
-        '/api/method/hrms_mobile.api.attendance.get_today_employee_checkins',
+        '/api/method/brij_ventures.api.mobile.get_today_employee_checkins',
         queryParameters: {
           'employee': employee,
           'for_date': DateFormats.todayIstDate(now),
@@ -427,6 +434,8 @@ class ApiClient {
             'log_type',
             'shift',
             'device_id',
+            'latitude',
+            'longitude',
             'skip_auto_attendance',
           ]),
           'order_by': 'time asc',
@@ -445,7 +454,7 @@ class ApiClient {
   Future<List<Employee>> getMobileEmployees({String? modifiedAfter}) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
-        '/api/method/hrms_mobile.api.attendance.get_mobile_employees',
+        '/api/method/brij_ventures.api.mobile.get_mobile_employees',
         queryParameters: {
           if (modifiedAfter != null && modifiedAfter.trim().isNotEmpty)
             'modified_after': modifiedAfter,
@@ -494,40 +503,17 @@ class ApiClient {
       );
     }
 
-    final payload = <String, Object?>{
-      'employee': employee,
-      'shift': shift,
-      'log_type': logType.toUpperCase(),
-      'time': DateFormats.forErp(time),
-      'device_id': appDeviceId,
-      'custom_face_verified': faceVerified ? 1 : 0,
-      'custom_source': 'FaceAttend HRMS Flutter App',
-      'custom_latitude': latitude,
-      'custom_longitude': longitude,
-      'custom_gps_accuracy': accuracy,
-      'custom_app_device_id': appDeviceId,
-    };
-
-    try {
-      final response = await _dio.post<Map<String, dynamic>>(
-        '/api/resource/Employee Checkin',
-        data: payload,
-      );
-      return EmployeeCheckin.fromJson(
-        Map<String, dynamic>.from(response.data?['data'] as Map),
-      );
-    } on DioException catch (error) {
-      final rawMessage = _extractMessage(error.response?.data) ?? '';
-      final erpError = _buildErpError(
-        error,
-        fallback: 'Unable to create Employee Checkin.',
-      );
-      if (_looksLikeMissingCustomField(rawMessage) ||
-          _looksLikeMissingCustomField(erpError.message)) {
-        return _createCheckinWithStandardPayload(payload);
-      }
-      throw erpError;
-    }
+    return _createEmployeeCheckinViaRest(
+      employee: employee,
+      shift: shift,
+      logType: logType,
+      time: time,
+      latitude: latitude,
+      longitude: longitude,
+      accuracy: accuracy,
+      faceVerified: faceVerified,
+      appDeviceId: appDeviceId,
+    );
   }
 
   Future<EmployeeCheckin> verifyFaceAndMarkAttendance({
@@ -538,6 +524,8 @@ class ApiClient {
     required double latitude,
     required double longitude,
     required String shift,
+    required List<double> faceEmbedding,
+    String appDeviceId = AppConfig.appDeviceId,
   }) async {
     final cleanLabourName = labourName.trim();
     if (cleanLabourName.isEmpty) {
@@ -552,14 +540,25 @@ class ApiClient {
     final capturedImage = 'data:image/jpeg;base64,${base64Encode(imageBytes)}';
 
     try {
+      final erpTime = DateFormats.forErp(time);
       final response = await _dio.post<Map<String, dynamic>>(
         AppConfig.faceAttendanceEndpoint,
         data: {
           'labour_name': cleanLabourName,
+          'employee': cleanLabourName,
+          'face_embedding': FaceProfile.encodeEmbedding(faceEmbedding),
           'captured_image': capturedImage,
+          'image_base64': capturedImage,
           'latitude': latitude.toString(),
           'longitude': longitude.toString(),
           'log_type': logType.toUpperCase(),
+          'action': logType.toUpperCase(),
+          'time': erpTime,
+          'timestamp': erpTime,
+          'device_time': erpTime,
+          'device_id': appDeviceId,
+          'source': 'Brij Dairy HRMS Android App',
+          'app_source': 'Brij Dairy HRMS Android App',
         },
         options: Options(
           contentType: Headers.formUrlEncodedContentType,
@@ -591,10 +590,16 @@ class ApiClient {
         );
       }
 
+      final attendanceLog = '${result['attendance_log'] ?? ''}'.trim();
+      if (attendanceLog.isNotEmpty) {
+        final savedCheckin = await _fetchEmployeeCheckinByName(attendanceLog);
+        if (savedCheckin != null) return savedCheckin;
+      }
+
       return EmployeeCheckin(
-        name: '${result['attendance_log'] ?? ''}'.trim().isEmpty
+        name: attendanceLog.isEmpty
             ? 'attendance-${time.microsecondsSinceEpoch}'
-            : '${result['attendance_log']}',
+            : attendanceLog,
         employee: cleanLabourName,
         logType: logType.toUpperCase(),
         time: time,
@@ -612,6 +617,19 @@ class ApiClient {
         error,
         fallback: 'Unable to verify face with ERPNext.',
       );
+    }
+  }
+
+  Future<EmployeeCheckin?> _fetchEmployeeCheckinByName(String checkinName) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/resource/Employee Checkin/${Uri.encodeComponent(checkinName)}',
+      );
+      final data = response.data?['data'];
+      if (data is! Map) return null;
+      return EmployeeCheckin.fromJson(Map<String, dynamic>.from(data));
+    } on DioException {
+      return null;
     }
   }
 
@@ -785,7 +803,7 @@ class ApiClient {
 
   Future<FaceProfile?> _getFaceProfileViaCustomMethod(String employee) async {
     final response = await _dio.get<Map<String, dynamic>>(
-      '/api/method/hrms_mobile.api.attendance.get_face_profile',
+      '/api/method/brij_ventures.api.mobile.get_face_profile',
       queryParameters: {'employee': employee},
     );
     return _readNullableFaceProfileResponse(response.data);
@@ -801,7 +819,7 @@ class ApiClient {
     required String deviceId,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
-      '/api/method/hrms_mobile.api.attendance.save_employee_face_embeddings',
+      '/api/method/brij_ventures.api.mobile.save_employee_face_embeddings',
       data: {
         'employee': employee.name,
         'employee_name': employee.employeeName,
@@ -942,11 +960,15 @@ class ApiClient {
           'shift': shift,
           'log_type': logType.toUpperCase(),
           'time': DateFormats.forErp(time),
+          'timestamp': DateFormats.forErp(time),
+          'device_time': DateFormats.forErp(time),
           'latitude': latitude,
           'longitude': longitude,
           'gps_accuracy': accuracy,
           'face_verified': faceVerified,
           'device_id': appDeviceId,
+          'source': 'Brij Dairy HRMS Android App',
+          'app_source': 'Brij Dairy HRMS Android App',
         },
       );
       final message = response.data?['message'];
@@ -967,6 +989,19 @@ class ApiClient {
         faceVerified: faceVerified,
       );
     } on DioException catch (error) {
+      if (_canFallbackFromCustomMethod(error)) {
+        return _createEmployeeCheckinViaRest(
+          employee: employee,
+          shift: shift,
+          logType: logType,
+          time: time,
+          latitude: latitude,
+          longitude: longitude,
+          accuracy: accuracy,
+          faceVerified: faceVerified,
+          appDeviceId: appDeviceId,
+        );
+      }
       throw _buildErpError(
         error,
         fallback: 'Unable to mark attendance through the custom endpoint.',
@@ -974,14 +1009,62 @@ class ApiClient {
     }
   }
 
-  static const _employeeEmailLookupFields = [
-    'user_id',
-    'prefered_email',
-    'company_email',
-    'personal_email',
-  ];
+  Future<EmployeeCheckin> _createEmployeeCheckinViaRest({
+    required String employee,
+    required String shift,
+    required String logType,
+    required DateTime time,
+    required double latitude,
+    required double longitude,
+    required double accuracy,
+    required bool faceVerified,
+    required String appDeviceId,
+  }) async {
+    final payload = <String, Object?>{
+      'employee': employee,
+      'shift': shift,
+      'log_type': logType.toUpperCase(),
+      'time': DateFormats.forErp(time),
+      'device_id': appDeviceId,
+      'custom_face_verified': faceVerified ? 1 : 0,
+      'custom_source': 'Brij Dairy HRMS Flutter App',
+      'custom_app_source': 'Brij Dairy HRMS Android App',
+      'custom_latitude': latitude,
+      'custom_longitude': longitude,
+      'custom_gps_accuracy': accuracy,
+      'custom_app_device_id': appDeviceId,
+      'custom_device_time': DateFormats.forErp(time),
+      'custom_location': '$latitude, $longitude',
+      'latitude': latitude,
+      'longitude': longitude,
+      'device_time': DateFormats.forErp(time),
+      'app_source': 'Brij Dairy HRMS Android App',
+      'location': '$latitude, $longitude',
+    };
 
-  static const _employeeListFields = [
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/api/resource/Employee Checkin',
+        data: payload,
+      );
+      return EmployeeCheckin.fromJson(
+        Map<String, dynamic>.from(response.data?['data'] as Map),
+      );
+    } on DioException catch (error) {
+      final rawMessage = _extractMessage(error.response?.data) ?? '';
+      final erpError = _buildErpError(
+        error,
+        fallback: 'Unable to create Employee Checkin.',
+      );
+      if (_looksLikeMissingCustomField(rawMessage) ||
+          _looksLikeMissingCustomField(erpError.message)) {
+        return _createCheckinWithStandardPayload(payload);
+      }
+      throw erpError;
+    }
+  }
+
+  static const _employeeCoreListFields = [
     'name',
     'employee_name',
     'user_id',
@@ -995,15 +1078,9 @@ class ApiClient {
     'holiday_list',
     'status',
     'modified',
-    'face_registered',
-    'face_embeddings',
-    'face_updated_on',
-    'face_model_version',
-    'face_quality_score',
-    'face_embedding_count',
   ];
 
-  static const _faceProfileDoctype = 'Employee Face Profile';
+  static const _faceProfileDoctype = 'Brij Face Profile';
 
   static Employee? _readEmployeeResponse(
     Map<String, dynamic>? data,
@@ -1116,6 +1193,24 @@ class ApiClient {
     return const ErpError(inactiveEmployeeMessage);
   }
 
+  static ErpError _noLinkedEmployeeError() {
+    return const ErpError(noLinkedEmployeeMessage);
+  }
+
+  static ErpError _employeeMappingError(DioException error) {
+    final message = _extractMessage(error.response?.data)?.toLowerCase() ?? '';
+    if (message.contains('inactive') || message.contains('removed')) {
+      return _inactiveEmployeeError();
+    }
+    if (message.contains('not found') ||
+        message.contains('no employee') ||
+        message.contains('not linked') ||
+        message.contains('not mapped')) {
+      return _noLinkedEmployeeError();
+    }
+    return _noLinkedEmployeeError();
+  }
+
   static ErpError _faceProfileSaveError() {
     return const ErpError(
       'Unable to save face profile. Please contact HRMS admin.',
@@ -1149,7 +1244,10 @@ class ApiClient {
     final message = _extractMessage(error.response?.data)?.toLowerCase() ?? '';
     return statusCode == 404 ||
         statusCode == 403 ||
+        statusCode == 417 ||
         message.contains('failed to get method') ||
+        message.contains('app hrms_mobile is not installed') ||
+        message.contains('app faceattend_hrms is not installed') ||
         message.contains('module') ||
         message.contains('not found') ||
         message.contains('does not exist') ||
@@ -1234,8 +1332,9 @@ class ApiClient {
       return 'Server method missing. Please restart ERPNext backend.';
     }
     if (normalized.contains('employee not found') ||
-        normalized.contains('no employee is mapped')) {
-      return 'Employee not found';
+        normalized.contains('no employee is mapped') ||
+        normalized.contains('no employee profile linked')) {
+      return noLinkedEmployeeMessage;
     }
     if (normalized.contains('employee is inactive') ||
         normalized.contains('employee is not active') ||

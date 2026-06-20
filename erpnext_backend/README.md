@@ -1,4 +1,4 @@
-# ERPNext backend patch
+# Brij Dairy ERPNext backend patch
 
 Copy `hrms_mobile/api/employee.py`, `hrms_mobile/api/face.py`, and
 `hrms_mobile/api/attendance.py` into the server-side `hrms_mobile` app,
@@ -8,9 +8,9 @@ Run the DocType setup from bench:
 
 ```bash
 cd /home/frappe/frappe-bench
-bench --site erp.jewonline.in console < /path/to/setup_employee_face_profile.py
-bench --site erp.jewonline.in clear-cache
-bench --site erp.jewonline.in migrate
+bench --site app.brijdairy.com console < /path/to/setup_employee_face_profile.py
+bench --site app.brijdairy.com clear-cache
+bench --site app.brijdairy.com migrate
 bench restart
 ```
 
@@ -23,6 +23,21 @@ face_updated_on
 face_model_version
 face_quality_score
 face_embedding_count
+```
+
+It also creates these `Employee Checkin` custom fields used by the Brij Android
+app to persist timestamp/GPS metadata:
+
+```text
+custom_latitude
+custom_longitude
+custom_location
+custom_device_time
+custom_app_source
+custom_app_device_id
+custom_gps_accuracy
+custom_face_verified
+custom_source
 ```
 
 Flutter calls these whitelisted methods:

@@ -1,5 +1,6 @@
 const inactiveEmployeeMessage =
     'Your employee profile is inactive or removed. Please contact HR.';
+const noLinkedEmployeeMessage = 'No Employee profile linked with this user.';
 
 class ErpError implements Exception {
   const ErpError(this.message, {this.statusCode});
@@ -15,26 +16,40 @@ bool isInactiveEmployeeError(Object error) {
   return error.toString() == inactiveEmployeeMessage;
 }
 
+bool isServerMethodMissingError(Object error) {
+  final message = error.toString().toLowerCase();
+  return message.contains('server method missing') ||
+      message.contains('failed to get method') ||
+      message.contains('app hrms_mobile is not installed') ||
+      message.contains('app faceattend_hrms is not installed') ||
+      message.contains('attributeerror') ||
+      message.contains('importerror');
+}
+
 String friendlyErrorMessage(
   Object? error, {
   String fallback = 'Something went wrong. Please try again.',
 }) {
   if (error == null) return fallback;
-  if (error is ErpError) return error.message;
 
-  final raw = error.toString().trim();
+  final raw = error is ErpError
+      ? error.message.trim()
+      : error.toString().trim();
   if (raw.isEmpty) return fallback;
   final message = raw.toLowerCase();
 
   if (message.contains('failed to get method') ||
+      message.contains('app hrms_mobile is not installed') ||
+      message.contains('app faceattend_hrms is not installed') ||
       message.contains('has no attribute') ||
       message.contains('attributeerror') ||
       message.contains('importerror')) {
     return 'Server method missing. Please restart ERPNext backend.';
   }
   if (message.contains('employee not found') ||
-      message.contains('no employee is mapped')) {
-    return 'Employee not found';
+      message.contains('no employee is mapped') ||
+      message.contains('no employee profile linked')) {
+    return noLinkedEmployeeMessage;
   }
   if (message.contains('employee is inactive') ||
       message.contains('employee is not active') ||

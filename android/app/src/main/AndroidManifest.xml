@@ -12,7 +12,7 @@
         android:required="false"/>
 
     <application
-        android:label="FaceAttend HRMS"
+        android:label="Brij Dairy HRMS"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="false">
