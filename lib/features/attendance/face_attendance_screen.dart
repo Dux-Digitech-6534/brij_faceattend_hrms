@@ -495,12 +495,12 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
           children: [
             PremiumCard(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
                 children: [
                   Container(
-                    width: 48,
-                    height: 48,
+                    width: 36,
+                    height: 36,
                     decoration: const BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: LinearGradient(
@@ -510,7 +510,7 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
                     alignment: Alignment.center,
                     child: Text(
                       widget.employee.initials,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w900,
                       ),
@@ -525,26 +525,31 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
                           widget.employee.employeeName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
+                          style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(fontWeight: FontWeight.w900),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          widget.employee.name,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: AppColors.faint,
-                                fontWeight: FontWeight.w700,
-                              ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'IST ${DateFormats.istClock.format(_istNow)}',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.w900,
-                              ),
+                        const SizedBox(height: 2),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 2,
+                          children: [
+                            Text(
+                              widget.employee.name,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: AppColors.faint,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                            Text(
+                              'IST ${DateFormats.istClock.format(_istNow)}',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -560,13 +565,13 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 8),
             _AttendanceDetailsCard(
               istNow: _istNow,
               position: _lastPosition,
               submittedAt: _submittedAt,
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 10),
             _CameraPanel(
               controller: _cameraController,
               scanController: _scanController,
@@ -577,8 +582,9 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
               livenessPassed: _livenessPassed,
               onRetry: _initializeCamera,
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 10),
             PremiumCard(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
                 children: [
                   if (_submitting)
@@ -607,12 +613,14 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
                       children: [
                         Text(
                           _statusTitle,
-                          style: Theme.of(context).textTheme.titleMedium
+                          style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(fontWeight: FontWeight.w900),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 2),
                         Text(
                           _statusSubtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
                                 color: AppColors.faint,
@@ -625,7 +633,7 @@ class _FaceAttendanceScreenState extends State<FaceAttendanceScreen>
                 ],
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             PremiumActionButton(
               label: _isMarkIn ? 'Confirm Mark In' : 'Confirm Mark Out',
               icon: _isMarkIn ? Icons.login_rounded : Icons.logout_rounded,
@@ -688,31 +696,24 @@ class _AttendanceDetailsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final captured = position != null;
     return PremiumCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 8,
         children: [
-          _DetailRow(
+          _DetailChip(
             icon: Icons.access_time_rounded,
-            title: 'Timestamp',
+            title: 'Time',
             value: submittedAt == null
                 ? 'IST ${DateFormats.istClock.format(istNow)}'
                 : DateFormats.forErp(submittedAt!),
           ),
-          const Divider(height: 20, color: AppColors.border),
-          _DetailRow(
-            icon: Icons.location_on_rounded,
-            title: 'Location',
-            value: captured
-                ? 'GPS locked for Brij Dairy HRMS'
-                : 'Captured during submit',
-          ),
-          const Divider(height: 20, color: AppColors.border),
-          _DetailRow(
+          _DetailChip(
             icon: Icons.gps_fixed_rounded,
-            title: 'GPS Coordinates',
+            title: captured ? 'GPS locked' : 'GPS',
             value: captured
                 ? '${position!.latitude.toStringAsFixed(5)}, ${position!.longitude.toStringAsFixed(5)}'
-                : 'Pending secure GPS capture',
+                : 'Captured on submit',
           ),
         ],
       ),
@@ -720,8 +721,8 @@ class _AttendanceDetailsCard extends StatelessWidget {
   }
 }
 
-class _DetailRow extends StatelessWidget {
-  const _DetailRow({
+class _DetailChip extends StatelessWidget {
+  const _DetailChip({
     required this.icon,
     required this.title,
     required this.value,
@@ -733,41 +734,48 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: AppColors.primarySoft,
-            borderRadius: BorderRadius.circular(8),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 132, maxWidth: 260),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: AppColors.primarySoft,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: AppColors.primary, size: 18),
           ),
-          child: Icon(icon, color: AppColors.primary, size: 20),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: AppColors.text,
-                  fontWeight: FontWeight.w900,
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: AppColors.text,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.muted,
-                  fontWeight: FontWeight.w700,
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

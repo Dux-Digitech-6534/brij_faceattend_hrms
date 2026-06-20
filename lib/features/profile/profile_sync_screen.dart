@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
-import '../../core/config/app_config.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_formats.dart';
 import '../../core/utils/erp_error.dart';
@@ -262,16 +261,8 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
                       value: employee.company ?? 'Not available',
                     ),
                     _InfoLine(
-                      label: 'Branch',
-                      value: employee.branch ?? 'Not available',
-                    ),
-                    _InfoLine(
                       label: 'Default shift',
                       value: employee.resolvedShift ?? 'Not assigned',
-                    ),
-                    _InfoLine(
-                      label: 'Holiday list',
-                      value: employee.holidayList ?? 'Not assigned',
                     ),
                     _InfoLine(
                       label: 'Status',
@@ -292,27 +283,6 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Sync Settings',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _InfoLine(label: 'Server', value: AppConfig.baseUrl),
-                    _InfoLine(
-                      label: 'Attendance API',
-                      value: AppConfig.faceAttendanceEndpoint,
-                    ),
-                    const SizedBox(height: 16),
-                    PremiumActionButton(
-                      label: 'Refresh from ERPNext',
-                      icon: Icons.cloud_sync_rounded,
-                      colors: const [AppColors.primary, AppColors.secondary],
-                      isLoading: _syncing,
-                      onPressed: _sync,
-                    ),
-                    const SizedBox(height: 12),
                     PremiumActionButton(
                       label: 'Logout',
                       icon: Icons.logout_rounded,
