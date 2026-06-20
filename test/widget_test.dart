@@ -41,8 +41,8 @@ void main() {
     expect(find.text('History'), findsWidgets);
     expect(find.text('Profile'), findsWidgets);
     expect(find.text('Mark In'), findsOneWidget);
-    expect(find.text('Update Face'), findsOneWidget);
-    expect(find.text('Face'), findsOneWidget);
+    expect(find.text('Update Face'), findsNothing);
+    expect(find.text('Face'), findsNothing);
     expect(find.text('Shift & Holidays'), findsOneWidget);
     expect(find.text('Recent Activity'), findsOneWidget);
 

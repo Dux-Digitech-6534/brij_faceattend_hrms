@@ -10,6 +10,8 @@ import '../../core/utils/erp_error.dart';
 import '../../models/employee_face_data.dart';
 import '../models/employee.dart';
 import '../models/employee_checkin.dart';
+import '../models/employee_face_status.dart';
+import '../models/face_registration_admin.dart';
 import '../models/face_profile.dart';
 import '../models/holiday_item.dart';
 import '../models/shift_details.dart';
@@ -474,6 +476,75 @@ class ApiClient {
     }
   }
 
+  Future<FaceRegistrationAdmin> getFaceRegistrationAdminStatus() async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/method/brij_ventures.api.mobile.is_face_registration_admin',
+      );
+      final message = response.data?['message'];
+      if (message is Map) {
+        return FaceRegistrationAdmin.fromJson(
+          Map<String, dynamic>.from(message),
+        );
+      }
+      return const FaceRegistrationAdmin(
+        isAdmin: false,
+        user: '',
+        fullName: '',
+        roles: [],
+      );
+    } on DioException catch (error) {
+      debugPrint('FaceRegistration admin status failed=${error.message}');
+      return const FaceRegistrationAdmin(
+        isAdmin: false,
+        user: '',
+        fullName: '',
+        roles: [],
+      );
+    }
+  }
+
+  Future<List<Employee>> getEmployeesForFaceRegistration({
+    String? search,
+  }) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/method/brij_ventures.api.mobile.get_employees_for_face_registration',
+      queryParameters: {
+        if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+      },
+    );
+    final message = response.data?['message'];
+    final rows = message is Map ? message['employees'] : message;
+    if (rows is! List) return const [];
+    return rows
+        .whereType<Map>()
+        .map((item) => Employee.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+  }
+
+  Future<EmployeeFaceStatus> getEmployeeFaceStatus(String employee) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/method/brij_ventures.api.mobile.get_employee_face_status',
+      queryParameters: {'employee': employee},
+    );
+    final message = response.data?['message'];
+    if (message is Map) {
+      return EmployeeFaceStatus.fromJson(Map<String, dynamic>.from(message));
+    }
+    return EmployeeFaceStatus(employee: employee, faceRegistered: false);
+  }
+
+  Future<EmployeeFaceStatus> getMyFaceStatus() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/method/brij_ventures.api.mobile.get_my_face_status',
+    );
+    final message = response.data?['message'];
+    if (message is Map) {
+      return EmployeeFaceStatus.fromJson(Map<String, dynamic>.from(message));
+    }
+    return const EmployeeFaceStatus(employee: '', faceRegistered: false);
+  }
+
   Future<EmployeeCheckin> createEmployeeCheckin({
     required String employee,
     required String shift,
@@ -620,7 +691,9 @@ class ApiClient {
     }
   }
 
-  Future<EmployeeCheckin?> _fetchEmployeeCheckinByName(String checkinName) async {
+  Future<EmployeeCheckin?> _fetchEmployeeCheckinByName(
+    String checkinName,
+  ) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/resource/Employee Checkin/${Uri.encodeComponent(checkinName)}',
@@ -739,6 +812,61 @@ class ApiClient {
         );
       }
       throw _faceProfileSaveError();
+    }
+  }
+
+  Future<EmployeeFaceStatus> adminRegisterEmployeeFace({
+    required Employee employee,
+    required List<double> embedding,
+    List<List<double>> embeddings = const [],
+    String modelVersion = AppConfig.faceModelVersion,
+    double qualityScore = 0,
+    required int sampleCount,
+    required String deviceId,
+    double? latitude,
+    double? longitude,
+    String? location,
+    String? city,
+    String? state,
+    String? country,
+  }) async {
+    try {
+      final data = <String, dynamic>{
+        'employee': employee.name,
+        'face_embedding': FaceProfile.encodeEmbedding(embedding),
+        'face_data': EmployeeFaceData.encodeEmbeddingsPayload(
+          embeddings: embeddings.isEmpty ? [embedding] : embeddings,
+          averageEmbedding: embedding,
+          modelVersion: modelVersion,
+          qualityScore: qualityScore,
+          engineName: AppConfig.faceEngineName,
+          embeddingDimension: embedding.length,
+          thresholdVersion: AppConfig.faceThresholdVersion,
+        ),
+        'sample_count': sampleCount,
+        'device_id': deviceId,
+        if (latitude != null) 'latitude': latitude.toString(),
+        if (longitude != null) 'longitude': longitude.toString(),
+      };
+      if (location != null) data['location'] = location;
+      if (city != null) data['city'] = city;
+      if (state != null) data['state'] = state;
+      if (country != null) data['country'] = country;
+
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/api/method/brij_ventures.api.mobile.admin_register_employee_face',
+        data: data,
+      );
+      final message = response.data?['message'];
+      if (message is Map) {
+        return EmployeeFaceStatus.fromJson(Map<String, dynamic>.from(message));
+      }
+      return EmployeeFaceStatus(employee: employee.name, faceRegistered: true);
+    } on DioException catch (error) {
+      throw _buildErpError(
+        error,
+        fallback: 'Unable to save selected employee face profile.',
+      );
     }
   }
 

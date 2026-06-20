@@ -5,14 +5,14 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_formats.dart';
 import '../../core/utils/erp_error.dart';
 import '../../data/models/dashboard_data.dart';
-import '../../data/models/face_profile.dart';
+import '../../data/models/employee_face_status.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
 import '../../shared/widgets/premium_action_button.dart';
 import '../../shared/widgets/premium_card.dart';
 import '../../shared/widgets/powered_by_footer.dart';
 import '../../shared/widgets/status_pill.dart';
 import '../auth/login_screen.dart';
-import '../face_registration/register_face_screen.dart';
+import '../face_registration/employee_face_registration_screen.dart';
 import '../home/home_screen.dart';
 
 class ProfileSyncScreen extends StatefulWidget {
@@ -29,7 +29,7 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
   bool _syncing = false;
   bool _loggingOut = false;
   bool _loadingFaceProfile = true;
-  FaceProfile? _faceProfile;
+  EmployeeFaceStatus? _faceStatus;
   String? _faceProfileError;
 
   @override
@@ -46,10 +46,9 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
       _faceProfileError = null;
     });
     try {
-      final service = AppScope.of(context).faceProfileService;
-      final profile = await service.getFaceProfile(_data.employee.name);
+      final status = await AppScope.of(context).apiClient.getMyFaceStatus();
       if (!mounted) return;
-      setState(() => _faceProfile = profile);
+      setState(() => _faceStatus = status);
     } catch (error) {
       if (!mounted) return;
       setState(() => _faceProfileError = friendlyErrorMessage(error));
@@ -91,16 +90,13 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
     );
   }
 
-  Future<void> _openRegisterFace() async {
+  Future<void> _openAdminFaceRegistration() async {
     final changed = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
-        builder: (_) =>
-            RegisterFaceScreen(employee: _data.employee, user: _data.user),
+        builder: (_) => EmployeeFaceRegistrationScreen(initialData: _data),
       ),
     );
-    if (changed == true) {
-      await _loadFaceProfile();
-    }
+    if (changed == true) await _loadFaceProfile();
   }
 
   Future<void> _logout() async {
@@ -273,12 +269,33 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
               ),
               const SizedBox(height: 16),
               _FaceProfileCard(
-                profile: _faceProfile,
+                status: _faceStatus,
                 loading: _loadingFaceProfile,
                 error: _faceProfileError,
-                onRegister: _openRegisterFace,
               ),
               const SizedBox(height: 16),
+              if (_data.isFaceRegistrationAdmin) ...[
+                PremiumCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Admin Tools',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 12),
+                      PremiumActionButton(
+                        label: 'Employee Face Registration',
+                        icon: Icons.admin_panel_settings_rounded,
+                        colors: const [AppColors.primary, AppColors.secondary],
+                        onPressed: _openAdminFaceRegistration,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               PremiumCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -305,31 +322,29 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
 
 class _FaceProfileCard extends StatelessWidget {
   const _FaceProfileCard({
-    required this.profile,
+    required this.status,
     required this.loading,
     required this.error,
-    required this.onRegister,
   });
 
-  final FaceProfile? profile;
+  final EmployeeFaceStatus? status;
   final bool loading;
   final String? error;
-  final VoidCallback onRegister;
 
-  bool get _registered => profile != null && profile!.hasEmbedding;
+  bool get _registered => status?.faceRegistered ?? false;
 
   @override
   Widget build(BuildContext context) {
     final color = _registered ? AppColors.green : AppColors.amber;
     final title = _registered ? 'Face Registered' : 'Face Not Registered';
-    final registeredOn = profile?.registeredOn;
+    final registeredOn = status?.registeredOn;
     final subtitle = error != null
         ? error!
         : _registered
         ? registeredOn == null
               ? 'Face profile is active.'
               : 'Registered on ${DateFormats.historyDate.format(registeredOn.toLocal())} at ${DateFormats.shortTime.format(registeredOn.toLocal())}'
-        : 'Register your face before Mark In or Mark Out.';
+        : 'Face not registered. Please contact HR/Admin.';
 
     return PremiumCard(
       child: Column(
@@ -386,17 +401,6 @@ class _FaceProfileCard extends StatelessWidget {
                   background: color.withValues(alpha: 0.1),
                 ),
             ],
-          ),
-          const SizedBox(height: 16),
-          PremiumActionButton(
-            label: _registered ? 'Re-register Face' : 'Register Face',
-            icon: _registered
-                ? Icons.change_circle_rounded
-                : Icons.face_retouching_natural_rounded,
-            colors: _registered
-                ? const [Color(0xFF00D090), AppColors.green]
-                : const [AppColors.primary, AppColors.secondary],
-            onPressed: loading ? null : onRegister,
           ),
         ],
       ),

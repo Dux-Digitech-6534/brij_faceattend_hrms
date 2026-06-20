@@ -26,6 +26,7 @@ class AttendanceRepository {
     );
     final history = await _apiClient.getAttendanceHistory(employee.name);
     final holidays = await _apiClient.getHolidays(employee);
+    final adminStatus = await _apiClient.getFaceRegistrationAdminStatus();
     return DashboardData(
       user: user,
       employee: employee,
@@ -33,6 +34,7 @@ class AttendanceRepository {
       history: history,
       holidays: holidays,
       todayStatus: AttendanceDayStatus.fromCheckins(todayCheckins),
+      isFaceRegistrationAdmin: adminStatus.isAdmin,
     );
   }
 

@@ -23,11 +23,25 @@ class RegisterFaceScreen extends StatefulWidget {
   const RegisterFaceScreen({
     required this.employee,
     required this.user,
+    this.adminRegistration = false,
+    this.latitude,
+    this.longitude,
+    this.location,
+    this.city,
+    this.state,
+    this.country,
     super.key,
   });
 
   final Employee employee;
   final String user;
+  final bool adminRegistration;
+  final double? latitude;
+  final double? longitude;
+  final String? location;
+  final String? city;
+  final String? state;
+  final String? country;
 
   @override
   State<RegisterFaceScreen> createState() => _RegisterFaceScreenState();
@@ -433,15 +447,32 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
         final best = samples.removeAt(bestIndex);
         samples.insert(0, best);
       }
-      await AppScope.of(context).faceProfileService.saveFaceProfile(
-        employee: widget.employee,
-        embedding: embedding,
-        embeddings: samples,
-        kbyTemplatesBase64: List<String>.from(_kbyTemplates),
-        qualityScore: _samples.isEmpty ? 0 : _qualityTotal / _samples.length,
-        sampleCount: _samples.length,
-        deviceId: AppConfig.appDeviceId,
-      );
+      if (widget.adminRegistration) {
+        await AppScope.of(context).apiClient.adminRegisterEmployeeFace(
+          employee: widget.employee,
+          embedding: embedding,
+          embeddings: samples,
+          qualityScore: _samples.isEmpty ? 0 : _qualityTotal / _samples.length,
+          sampleCount: _samples.length,
+          deviceId: AppConfig.appDeviceId,
+          latitude: widget.latitude,
+          longitude: widget.longitude,
+          location: widget.location,
+          city: widget.city,
+          state: widget.state,
+          country: widget.country,
+        );
+      } else {
+        await AppScope.of(context).faceProfileService.saveFaceProfile(
+          employee: widget.employee,
+          embedding: embedding,
+          embeddings: samples,
+          kbyTemplatesBase64: List<String>.from(_kbyTemplates),
+          qualityScore: _samples.isEmpty ? 0 : _qualityTotal / _samples.length,
+          sampleCount: _samples.length,
+          deviceId: AppConfig.appDeviceId,
+        );
+      }
       debugPrint(
         'FaceRegister save success selectedEngine=$_selectedEngine '
         'sampleCount=${_samples.length} kbyTemplateCount=${_kbyTemplates.length} '
@@ -449,9 +480,11 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Face registered successfully. You can now mark attendance.',
+            widget.adminRegistration
+                ? 'Employee face registered successfully.'
+                : 'Face registered successfully. You can now mark attendance.',
           ),
           backgroundColor: AppColors.green,
         ),
@@ -499,12 +532,22 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
   Widget build(BuildContext context) {
     final currentSample = math.min(_samples.length + 1, _sampleTarget);
     return Scaffold(
-      appBar: AppBar(title: const Text('Register Face')),
+      appBar: AppBar(
+        title: Text(
+          widget.adminRegistration
+              ? 'Employee Face Registration'
+              : 'Register Face',
+        ),
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
           children: [
-            _EmployeeDetailCard(employee: widget.employee, user: widget.user),
+            _EmployeeDetailCard(
+              employee: widget.employee,
+              user: widget.user,
+              adminRegistration: widget.adminRegistration,
+            ),
             const SizedBox(height: 16),
             _CameraScanCard(
               controller: _cameraController,
@@ -564,10 +607,15 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
 }
 
 class _EmployeeDetailCard extends StatelessWidget {
-  const _EmployeeDetailCard({required this.employee, required this.user});
+  const _EmployeeDetailCard({
+    required this.employee,
+    required this.user,
+    required this.adminRegistration,
+  });
 
   final Employee employee;
   final String user;
+  final bool adminRegistration;
 
   @override
   Widget build(BuildContext context) {
@@ -632,11 +680,13 @@ class _EmployeeDetailCard extends StatelessWidget {
                   ],
                 ),
               ),
-              const StatusPill(
-                label: 'Own profile',
+              StatusPill(
+                label: adminRegistration ? 'Admin selected' : 'Own profile',
                 foreground: AppColors.primary,
                 background: AppColors.primarySoft,
-                icon: Icons.lock_rounded,
+                icon: adminRegistration
+                    ? Icons.admin_panel_settings_rounded
+                    : Icons.lock_rounded,
               ),
             ],
           ),

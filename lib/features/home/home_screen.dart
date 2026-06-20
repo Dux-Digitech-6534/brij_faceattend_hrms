@@ -17,7 +17,6 @@ import '../../shared/widgets/premium_card.dart';
 import '../../shared/widgets/status_pill.dart';
 import '../attendance/face_attendance_screen.dart';
 import '../auth/login_screen.dart';
-import '../face_registration/register_face_screen.dart';
 import '../history/attendance_history_screen.dart';
 import '../profile/profile_sync_screen.dart';
 
@@ -79,16 +78,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _showSnack(friendlyErrorMessage(error), isError: true);
       return null;
     }
-  }
-
-  Future<void> _openRegisterFace() async {
-    final registered = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
-        builder: (_) =>
-            RegisterFaceScreen(employee: _data.employee, user: _data.user),
-      ),
-    );
-    if (registered == true) await _refresh();
   }
 
   Future<void> _openAttendance(String requestedLogType) async {
@@ -197,7 +186,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     isLoading: _openingAttendance || _isRefreshing,
                     onMarkIn: () => _openAttendance('IN'),
                     onMarkOut: () => _openAttendance('OUT'),
-                    onRegisterFace: _openRegisterFace,
                   ),
                   const SizedBox(height: 14),
                   _QuickAccess(
@@ -216,7 +204,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       );
                     },
-                    onRegisterFace: _openRegisterFace,
                   ),
                   const SizedBox(height: 16),
                   _ShiftCard(data: _data),
@@ -375,7 +362,6 @@ class _TodayCard extends StatelessWidget {
     required this.isLoading,
     required this.onMarkIn,
     required this.onMarkOut,
-    required this.onRegisterFace,
   });
 
   final DashboardData data;
@@ -383,7 +369,6 @@ class _TodayCard extends StatelessWidget {
   final bool isLoading;
   final VoidCallback onMarkIn;
   final VoidCallback onMarkOut;
-  final VoidCallback onRegisterFace;
 
   @override
   Widget build(BuildContext context) {
@@ -498,20 +483,6 @@ class _TodayCard extends StatelessWidget {
               onPressed: hasShift && !isLoading ? onMarkOut : null,
             ),
           ],
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: isLoading ? null : onRegisterFace,
-            icon: const Icon(Icons.face_retouching_natural_rounded),
-            label: const Text('Update Face'),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-              foregroundColor: AppColors.primary,
-              side: const BorderSide(color: AppColors.border),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -606,15 +577,10 @@ class _Metric extends StatelessWidget {
 }
 
 class _QuickAccess extends StatelessWidget {
-  const _QuickAccess({
-    required this.onHistory,
-    required this.onProfile,
-    required this.onRegisterFace,
-  });
+  const _QuickAccess({required this.onHistory, required this.onProfile});
 
   final VoidCallback onHistory;
   final VoidCallback onProfile;
-  final VoidCallback onRegisterFace;
 
   @override
   Widget build(BuildContext context) {
@@ -625,14 +591,6 @@ class _QuickAccess extends StatelessWidget {
             icon: Icons.history_rounded,
             label: 'History',
             onTap: onHistory,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _QuickTile(
-            icon: Icons.face_retouching_natural_rounded,
-            label: 'Face',
-            onTap: onRegisterFace,
           ),
         ),
         const SizedBox(width: 12),

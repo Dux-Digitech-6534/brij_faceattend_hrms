@@ -11,6 +11,7 @@ class DashboardData {
     required this.shiftDetails,
     required this.history,
     required this.holidays,
+    this.isFaceRegistrationAdmin = false,
     AttendanceDayStatus? todayStatus,
   }) : todayStatus = todayStatus ?? AttendanceDayStatus.fromCheckins(const []);
 
@@ -20,6 +21,7 @@ class DashboardData {
   final List<EmployeeCheckin> history;
   final List<HolidayItem> holidays;
   final AttendanceDayStatus todayStatus;
+  final bool isFaceRegistrationAdmin;
 
   EmployeeCheckin? get lastCheckin {
     if (history.isEmpty) return null;
@@ -32,6 +34,7 @@ class DashboardData {
     Employee? employee,
     List<EmployeeCheckin>? history,
     AttendanceDayStatus? todayStatus,
+    bool? isFaceRegistrationAdmin,
   }) {
     return DashboardData(
       user: user,
@@ -40,6 +43,8 @@ class DashboardData {
       history: history ?? this.history,
       holidays: holidays,
       todayStatus: todayStatus ?? this.todayStatus,
+      isFaceRegistrationAdmin:
+          isFaceRegistrationAdmin ?? this.isFaceRegistrationAdmin,
     );
   }
 }
