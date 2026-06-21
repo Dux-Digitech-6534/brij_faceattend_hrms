@@ -18,6 +18,11 @@ import '../models/shift_details.dart';
 import '../services/session_store.dart';
 
 class ApiClient {
+  static const _faceNotRegisteredMessage =
+      'Face not registered. Please contact HR/Admin.';
+  static const _faceStatusLoadFailureMessage =
+      'Unable to load face status. Pull down to refresh or contact HR/Admin.';
+
   ApiClient(this._sessionStore)
     : _dio = Dio(
         BaseOptions(
@@ -523,26 +528,80 @@ class ApiClient {
   }
 
   Future<EmployeeFaceStatus> getEmployeeFaceStatus(String employee) async {
-    final response = await _dio.get<Map<String, dynamic>>(
-      '/api/method/brij_ventures.api.mobile.get_employee_face_status',
-      queryParameters: {'employee': employee},
-    );
-    final message = response.data?['message'];
-    if (message is Map) {
-      return EmployeeFaceStatus.fromJson(Map<String, dynamic>.from(message));
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/method/brij_ventures.api.mobile.get_employee_face_status',
+        queryParameters: {'employee': employee},
+      );
+      return _readFaceStatusResponse(response.data, employee: employee);
+    } on DioException catch (error) {
+      if (_looksLikeFaceNotRegistered(error)) {
+        return EmployeeFaceStatus(
+          employee: employee,
+          faceRegistered: false,
+          message: _faceNotRegisteredMessage,
+        );
+      }
+      throw _buildErpError(error, fallback: _faceStatusLoadFailureMessage);
     }
-    return EmployeeFaceStatus(employee: employee, faceRegistered: false);
   }
 
   Future<EmployeeFaceStatus> getMyFaceStatus() async {
-    final response = await _dio.get<Map<String, dynamic>>(
-      '/api/method/brij_ventures.api.mobile.get_my_face_status',
-    );
-    final message = response.data?['message'];
-    if (message is Map) {
-      return EmployeeFaceStatus.fromJson(Map<String, dynamic>.from(message));
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/method/brij_ventures.api.mobile.get_my_face_status',
+      );
+      return _readFaceStatusResponse(response.data, employee: '');
+    } on DioException catch (error) {
+      if (_looksLikeFaceNotRegistered(error)) {
+        return const EmployeeFaceStatus(
+          employee: '',
+          faceRegistered: false,
+          message: _faceNotRegisteredMessage,
+        );
+      }
+      throw _buildErpError(error, fallback: _faceStatusLoadFailureMessage);
     }
-    return const EmployeeFaceStatus(employee: '', faceRegistered: false);
+  }
+
+  static EmployeeFaceStatus _readFaceStatusResponse(
+    Map<String, dynamic>? data, {
+    required String employee,
+  }) {
+    final message = data?['message'];
+    if (message is Map) {
+      final parsed = EmployeeFaceStatus.fromJson(
+        Map<String, dynamic>.from(message),
+      );
+      if (parsed.employee.isNotEmpty || employee.isEmpty) return parsed;
+      return EmployeeFaceStatus(
+        employee: employee,
+        faceRegistered: parsed.faceRegistered,
+        registeredOn: parsed.registeredOn,
+        registeredBy: parsed.registeredBy,
+        status: parsed.status,
+        message: parsed.message,
+        isActive: parsed.isActive,
+      );
+    }
+    if (data != null && data.containsKey('face_registered')) {
+      final parsed = EmployeeFaceStatus.fromJson(data);
+      if (parsed.employee.isNotEmpty || employee.isEmpty) return parsed;
+      return EmployeeFaceStatus(
+        employee: employee,
+        faceRegistered: parsed.faceRegistered,
+        registeredOn: parsed.registeredOn,
+        registeredBy: parsed.registeredBy,
+        status: parsed.status,
+        message: parsed.message,
+        isActive: parsed.isActive,
+      );
+    }
+    return EmployeeFaceStatus(
+      employee: employee,
+      faceRegistered: false,
+      message: _faceNotRegisteredMessage,
+    );
   }
 
   Future<EmployeeCheckin> createEmployeeCheckin({
@@ -1405,6 +1464,14 @@ class ApiClient {
             message.contains('not found') ||
             message.contains('permission') ||
             message.contains('not permitted'));
+  }
+
+  static bool _looksLikeFaceNotRegistered(DioException error) {
+    final message = _extractMessage(error.response?.data)?.toLowerCase() ?? '';
+    return error.response?.statusCode == 417 &&
+        (message.isEmpty ||
+            message.contains('face not registered') ||
+            message.contains('face not found'));
   }
 
   static ErpError _buildErpError(

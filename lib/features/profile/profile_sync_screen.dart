@@ -344,7 +344,7 @@ class _FaceProfileCard extends StatelessWidget {
         ? registeredOn == null
               ? 'Face profile is active.'
               : 'Registered on ${DateFormats.historyDate.format(registeredOn.toLocal())} at ${DateFormats.shortTime.format(registeredOn.toLocal())}'
-        : 'Face not registered. Please contact HR/Admin.';
+        : status?.message ?? 'Face not registered. Please contact HR/Admin.';
 
     return PremiumCard(
       child: Column(

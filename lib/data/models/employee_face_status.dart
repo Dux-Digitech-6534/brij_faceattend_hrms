@@ -5,6 +5,7 @@ class EmployeeFaceStatus {
     this.registeredOn,
     this.registeredBy,
     this.status,
+    this.message,
     this.isActive = false,
   });
 
@@ -13,6 +14,7 @@ class EmployeeFaceStatus {
   final DateTime? registeredOn;
   final String? registeredBy;
   final String? status;
+  final String? message;
   final bool isActive;
 
   factory EmployeeFaceStatus.fromJson(Map<String, dynamic> json) {
@@ -22,6 +24,7 @@ class EmployeeFaceStatus {
       registeredOn: DateTime.tryParse('${json['registered_on'] ?? ''}'),
       registeredBy: _string(json['registered_by']),
       status: _string(json['status']),
+      message: _string(json['message']),
       isActive: _bool(json['is_active'] ?? json['active']),
     );
   }
