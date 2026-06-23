@@ -483,7 +483,7 @@ class _RegisterFaceScreenState extends State<RegisterFaceScreen>
         SnackBar(
           content: Text(
             widget.adminRegistration
-                ? 'Employee face registered successfully.'
+                ? 'Face profile saved successfully.'
                 : 'Face registered successfully. You can now mark attendance.',
           ),
           backgroundColor: AppColors.green,
