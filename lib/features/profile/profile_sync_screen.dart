@@ -12,6 +12,7 @@ import '../../shared/widgets/premium_card.dart';
 import '../../shared/widgets/powered_by_footer.dart';
 import '../../shared/widgets/status_pill.dart';
 import '../auth/login_screen.dart';
+import '../attendance_locations/attendance_locations_screen.dart';
 import '../face_registration/employee_face_registration_screen.dart';
 import '../home/home_screen.dart';
 
@@ -97,6 +98,14 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
       ),
     );
     if (changed == true) await _loadFaceProfile();
+  }
+
+  Future<void> _openAttendanceLocations() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => AttendanceLocationsScreen(initialData: _data),
+      ),
+    );
   }
 
   Future<void> _logout() async {
@@ -290,6 +299,13 @@ class _ProfileSyncScreenState extends State<ProfileSyncScreen> {
                         icon: Icons.admin_panel_settings_rounded,
                         colors: const [AppColors.primary, AppColors.secondary],
                         onPressed: _openAdminFaceRegistration,
+                      ),
+                      const SizedBox(height: 12),
+                      PremiumActionButton(
+                        label: 'Attendance Locations',
+                        icon: Icons.add_location_alt_rounded,
+                        colors: const [AppColors.green, AppColors.primary],
+                        onPressed: _openAttendanceLocations,
                       ),
                     ],
                   ),

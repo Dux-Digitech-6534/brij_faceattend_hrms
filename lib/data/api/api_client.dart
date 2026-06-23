@@ -8,7 +8,9 @@ import '../../core/config/app_config.dart';
 import '../../core/utils/date_formats.dart';
 import '../../core/utils/erp_error.dart';
 import '../../models/employee_face_data.dart';
+import '../models/attendance_location.dart';
 import '../models/employee.dart';
+import '../models/employee_attendance_location.dart';
 import '../models/employee_checkin.dart';
 import '../models/employee_face_status.dart';
 import '../models/face_registration_admin.dart';
@@ -602,6 +604,164 @@ class ApiClient {
       faceRegistered: false,
       message: _faceNotRegisteredMessage,
     );
+  }
+
+  Future<List<AttendanceLocation>> getAttendanceLocations({
+    bool includeInactive = false,
+  }) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/method/brij_ventures.api.mobile.get_attendance_locations',
+        queryParameters: {'include_inactive': includeInactive ? '1' : '0'},
+      );
+      final message = response.data?['message'];
+      final rows = message is Map ? message['locations'] : message;
+      if (rows is! List) return const [];
+      return rows
+          .whereType<Map>()
+          .map(
+            (item) =>
+                AttendanceLocation.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      throw _buildErpError(
+        error,
+        fallback: 'Unable to fetch attendance locations.',
+      );
+    }
+  }
+
+  Future<AttendanceLocation> createAttendanceLocation({
+    required String locationName,
+    required double latitude,
+    required double longitude,
+    bool isActive = true,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/api/method/brij_ventures.api.mobile.create_attendance_location',
+        data: {
+          'location_name': locationName,
+          'latitude': latitude.toString(),
+          'longitude': longitude.toString(),
+          'is_active': isActive ? '1' : '0',
+        },
+      );
+      return _readAttendanceLocation(response.data);
+    } on DioException catch (error) {
+      throw _buildErpError(
+        error,
+        fallback: 'Unable to save attendance location.',
+      );
+    }
+  }
+
+  Future<AttendanceLocation> updateAttendanceLocation({
+    required String name,
+    required String locationName,
+    required double latitude,
+    required double longitude,
+    required bool isActive,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/api/method/brij_ventures.api.mobile.update_attendance_location',
+        data: {
+          'name': name,
+          'location_name': locationName,
+          'latitude': latitude.toString(),
+          'longitude': longitude.toString(),
+          'is_active': isActive ? '1' : '0',
+        },
+      );
+      return _readAttendanceLocation(response.data);
+    } on DioException catch (error) {
+      throw _buildErpError(
+        error,
+        fallback: 'Unable to update attendance location.',
+      );
+    }
+  }
+
+  Future<void> deleteAttendanceLocation(String name) async {
+    try {
+      await _dio.post<Map<String, dynamic>>(
+        '/api/method/brij_ventures.api.mobile.delete_attendance_location',
+        data: {'name': name},
+      );
+    } on DioException catch (error) {
+      throw _buildErpError(
+        error,
+        fallback: 'Unable to deactivate attendance location.',
+      );
+    }
+  }
+
+  Future<List<EmployeeAttendanceLocation>> getEmployeeAttendanceLocations(
+    String employee,
+  ) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/method/brij_ventures.api.mobile.get_employee_attendance_locations',
+        queryParameters: {'employee': employee},
+      );
+      final message = response.data?['message'];
+      final rows = message is Map ? message['assignments'] : message;
+      if (rows is! List) return const [];
+      return rows
+          .whereType<Map>()
+          .map(
+            (item) => EmployeeAttendanceLocation.fromJson(
+              Map<String, dynamic>.from(item),
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      throw _buildErpError(
+        error,
+        fallback: 'Unable to fetch employee attendance locations.',
+      );
+    }
+  }
+
+  Future<EmployeeAttendanceLocation> assignEmployeeAttendanceLocation({
+    required String employee,
+    required String attendanceLocation,
+    required double radiusMeters,
+    String? notes,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/api/method/brij_ventures.api.mobile.assign_employee_attendance_location',
+        data: {
+          'employee': employee,
+          'attendance_location': attendanceLocation,
+          'radius_meters': radiusMeters.toString(),
+          if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+        },
+      );
+      return _readEmployeeAttendanceLocation(response.data);
+    } on DioException catch (error) {
+      throw _buildErpError(
+        error,
+        fallback: 'Unable to assign attendance location.',
+      );
+    }
+  }
+
+  Future<void> deleteEmployeeAttendanceLocation(String name) async {
+    try {
+      await _dio.post<Map<String, dynamic>>(
+        '/api/method/brij_ventures.api.mobile.delete_employee_attendance_location',
+        data: {'name': name},
+      );
+    } on DioException catch (error) {
+      throw _buildErpError(
+        error,
+        fallback: 'Unable to remove employee attendance location.',
+      );
+    }
   }
 
   Future<EmployeeCheckin> createEmployeeCheckin({
@@ -1404,6 +1564,32 @@ class ApiClient {
     );
   }
 
+  static AttendanceLocation _readAttendanceLocation(
+    Map<String, dynamic>? data,
+  ) {
+    final message = data?['message'];
+    final row = message is Map ? message['location'] ?? message : null;
+    if (row is Map) {
+      return AttendanceLocation.fromJson(Map<String, dynamic>.from(row));
+    }
+    throw const ErpError('ERPNext did not return the attendance location.');
+  }
+
+  static EmployeeAttendanceLocation _readEmployeeAttendanceLocation(
+    Map<String, dynamic>? data,
+  ) {
+    final message = data?['message'];
+    final row = message is Map ? message['assignment'] ?? message : null;
+    if (row is Map) {
+      return EmployeeAttendanceLocation.fromJson(
+        Map<String, dynamic>.from(row),
+      );
+    }
+    throw const ErpError(
+      'ERPNext did not return the employee attendance location.',
+    );
+  }
+
   static String? _readCookie(Headers headers) {
     final values = headers.map['set-cookie'];
     if (values == null || values.isEmpty) return null;
@@ -1539,6 +1725,16 @@ class ApiClient {
     if (normalized.contains('face not matched') ||
         normalized.contains('face verification failed')) {
       return 'Face not matched';
+    }
+    if (normalized.contains('no attendance location assigned')) {
+      return 'No attendance location assigned. Please contact HR/Admin.';
+    }
+    if (normalized.contains('outside assigned attendance location')) {
+      return 'You are outside assigned attendance location.';
+    }
+    if (normalized.contains('gps location is required') ||
+        normalized.contains('gps_missing')) {
+      return 'GPS location is required.';
     }
     if (_shouldHideServerFieldMessage(message) ||
         normalized.contains('traceback') ||
