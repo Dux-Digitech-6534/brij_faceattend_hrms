@@ -905,7 +905,8 @@ class ApiClient {
     } on DioException catch (error) {
       throw _buildErpError(
         error,
-        fallback: 'Unable to verify face with ERPNext.',
+        fallback:
+            'Unable to verify attendance. Please try again or contact HR/Admin.',
       );
     }
   }
@@ -1725,6 +1726,9 @@ class ApiClient {
     if (normalized.contains('face not matched') ||
         normalized.contains('face verification failed')) {
       return 'Face not matched';
+    }
+    if (normalized.contains('face not registered')) {
+      return 'Face not registered. Please contact HR/Admin.';
     }
     if (normalized.contains('no attendance location assigned')) {
       return 'No attendance location assigned. Please contact HR/Admin.';

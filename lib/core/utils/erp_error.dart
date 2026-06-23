@@ -60,6 +60,9 @@ String friendlyErrorMessage(
       message.contains('face verification failed')) {
     return 'Face not matched';
   }
+  if (message.contains('face not registered')) {
+    return 'Face not registered. Please contact HR/Admin.';
+  }
   if (message.contains('no attendance location assigned')) {
     return 'No attendance location assigned. Please contact HR/Admin.';
   }
