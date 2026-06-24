@@ -4,8 +4,10 @@ import '../../app/app_scope.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_formats.dart';
 import '../../core/utils/erp_error.dart';
+import '../../data/models/attendance_location.dart';
 import '../../data/models/dashboard_data.dart';
 import '../../data/models/employee.dart';
+import '../../data/models/employee_attendance_location.dart';
 import '../../data/models/employee_face_status.dart';
 import '../../shared/widgets/premium_action_button.dart';
 import '../../shared/widgets/premium_card.dart';
@@ -25,10 +27,16 @@ class EmployeeFaceRegistrationScreen extends StatefulWidget {
 class _EmployeeFaceRegistrationScreenState
     extends State<EmployeeFaceRegistrationScreen> {
   final _searchController = TextEditingController();
+  final _radiusController = TextEditingController(text: '100');
   List<Employee> _employees = const [];
+  List<AttendanceLocation> _locations = const [];
+  List<EmployeeAttendanceLocation> _assignments = const [];
   Employee? _selected;
   EmployeeFaceStatus? _selectedStatus;
+  String? _selectedLocationName;
   bool _loadingEmployees = false;
+  bool _loadingLocations = false;
+  bool _savingAssignment = false;
   bool _capturingLocation = false;
   double? _latitude;
   double? _longitude;
@@ -41,13 +49,17 @@ class _EmployeeFaceRegistrationScreenState
   void initState() {
     super.initState();
     if (_authorized) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadEmployees());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadEmployees();
+        _loadLocations();
+      });
     }
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _radiusController.dispose();
     super.dispose();
   }
 
@@ -69,10 +81,55 @@ class _EmployeeFaceRegistrationScreenState
     }
   }
 
+  Future<void> _loadLocations() async {
+    setState(() {
+      _loadingLocations = true;
+      _error = null;
+    });
+    try {
+      final rows = await AppScope.of(
+        context,
+      ).apiClient.getAttendanceLocations();
+      if (!mounted) return;
+      setState(() {
+        _locations = rows;
+        if (_selectedLocationName == null && rows.isNotEmpty) {
+          _selectedLocationName = rows.first.name;
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = friendlyErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _loadingLocations = false);
+    }
+  }
+
+  Future<void> _loadAssignments(Employee employee) async {
+    setState(() {
+      _loadingLocations = true;
+      _assignments = const [];
+      _error = null;
+    });
+    try {
+      final rows = await AppScope.of(
+        context,
+      ).apiClient.getEmployeeAttendanceLocations(employee.name);
+      if (!mounted) return;
+      setState(() => _assignments = rows);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = friendlyErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _loadingLocations = false);
+    }
+  }
+
   Future<void> _selectEmployee(Employee employee) async {
     setState(() {
       _selected = employee;
       _selectedStatus = null;
+      _assignments = const [];
       _error = null;
     });
     try {
@@ -81,9 +138,60 @@ class _EmployeeFaceRegistrationScreenState
       ).apiClient.getEmployeeFaceStatus(employee.name);
       if (!mounted) return;
       setState(() => _selectedStatus = status);
+      await _loadAssignments(employee);
     } catch (error) {
       if (!mounted) return;
       setState(() => _error = friendlyErrorMessage(error));
+    }
+  }
+
+  Future<void> _assignLocation() async {
+    final selected = _selected;
+    final locationName = _selectedLocationName;
+    final radius = double.tryParse(_radiusController.text.trim());
+    if (selected == null || locationName == null || radius == null) {
+      setState(() => _error = 'Select a location and valid radius.');
+      return;
+    }
+
+    setState(() {
+      _savingAssignment = true;
+      _error = null;
+    });
+    try {
+      await AppScope.of(context).apiClient.assignEmployeeAttendanceLocation(
+        employee: selected.name,
+        attendanceLocation: locationName,
+        radiusMeters: radius,
+      );
+      if (!mounted) return;
+      await _loadAssignments(selected);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = friendlyErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _savingAssignment = false);
+    }
+  }
+
+  Future<void> _removeAssignment(EmployeeAttendanceLocation assignment) async {
+    final selected = _selected;
+    if (selected == null) return;
+    setState(() {
+      _savingAssignment = true;
+      _error = null;
+    });
+    try {
+      await AppScope.of(
+        context,
+      ).apiClient.deleteEmployeeAttendanceLocation(assignment.name);
+      if (!mounted) return;
+      await _loadAssignments(selected);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = friendlyErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _savingAssignment = false);
     }
   }
 
@@ -205,6 +313,18 @@ class _EmployeeFaceRegistrationScreenState
               _SelectedEmployeeCard(
                 employee: _selected!,
                 status: _selectedStatus,
+              ),
+              const SizedBox(height: 12),
+              _AttendanceAssignmentCard(
+                locations: _locations,
+                assignments: _assignments,
+                selectedLocationName: _selectedLocationName,
+                radiusController: _radiusController,
+                loading: _loadingLocations || _savingAssignment,
+                onLocationChanged: (value) =>
+                    setState(() => _selectedLocationName = value),
+                onAssign: _assignLocation,
+                onRemove: _removeAssignment,
               ),
               const SizedBox(height: 12),
               _LocationCard(
@@ -371,6 +491,120 @@ class _SelectedEmployeeCard extends StatelessWidget {
                       ? 'Registered'
                       : 'Registered on ${DateFormats.historyDate.format(registeredOn.toLocal())}'
                 : 'Not Registered',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttendanceAssignmentCard extends StatelessWidget {
+  const _AttendanceAssignmentCard({
+    required this.locations,
+    required this.assignments,
+    required this.selectedLocationName,
+    required this.radiusController,
+    required this.loading,
+    required this.onLocationChanged,
+    required this.onAssign,
+    required this.onRemove,
+  });
+
+  final List<AttendanceLocation> locations;
+  final List<EmployeeAttendanceLocation> assignments;
+  final String? selectedLocationName;
+  final TextEditingController radiusController;
+  final bool loading;
+  final ValueChanged<String?> onLocationChanged;
+  final VoidCallback onAssign;
+  final ValueChanged<EmployeeAttendanceLocation> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return PremiumCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Attendance Locations',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              if (loading)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2.2),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (assignments.isEmpty)
+            Text(
+              'No attendance locations assigned.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppColors.faint,
+                fontWeight: FontWeight.w700,
+              ),
+            )
+          else
+            ...assignments.map(
+              (assignment) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                leading: const Icon(Icons.location_on_rounded),
+                title: Text(assignment.locationName),
+                subtitle: Text(
+                  'Radius ${assignment.radiusMeters.toStringAsFixed(0)} m',
+                ),
+                trailing: IconButton(
+                  tooltip: 'Remove assignment',
+                  onPressed: loading ? null : () => onRemove(assignment),
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+              ),
+            ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue:
+                locations.any((item) => item.name == selectedLocationName)
+                ? selectedLocationName
+                : null,
+            items: locations
+                .map(
+                  (location) => DropdownMenuItem<String>(
+                    value: location.name,
+                    child: Text(location.locationName),
+                  ),
+                )
+                .toList(growable: false),
+            onChanged: loading || locations.isEmpty ? null : onLocationChanged,
+            decoration: const InputDecoration(
+              labelText: 'Assign location',
+              prefixIcon: Icon(Icons.add_location_alt_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: radiusController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Allowed radius in meters',
+              prefixIcon: Icon(Icons.radio_button_checked_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+          PremiumActionButton(
+            label: 'Assign Location',
+            icon: Icons.check_circle_rounded,
+            colors: const [AppColors.green, AppColors.primary],
+            isLoading: loading,
+            onPressed: locations.isEmpty || loading ? null : onAssign,
           ),
         ],
       ),

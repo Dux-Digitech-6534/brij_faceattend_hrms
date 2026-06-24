@@ -60,6 +60,19 @@ String friendlyErrorMessage(
       message.contains('face verification failed')) {
     return 'Face not matched';
   }
+  if (message.contains('face not registered')) {
+    return 'Face not registered. Please contact HR/Admin.';
+  }
+  if (message.contains('no attendance location assigned')) {
+    return 'No attendance location assigned. Please contact HR/Admin.';
+  }
+  if (message.contains('outside assigned attendance location')) {
+    return 'You are outside assigned attendance location.';
+  }
+  if (message.contains('gps location is required') ||
+      message.contains('gps_missing')) {
+    return 'GPS location is required.';
+  }
   if (message.contains('socketexception') ||
       message.contains('connection timed out') ||
       message.contains('connection timeout') ||
